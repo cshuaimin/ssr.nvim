@@ -1,0 +1,42 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  unit_tests:
+    name: unit tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        nvim: [v0.8.0, nightly]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set Envs
+        run: |
+          echo "VIM=~/.local/share/nvim/share/nvim/runtime" >> $GITHUB_ENV
+          echo "PATH=~/.local/share/nvim/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Cache Dependencies
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.local/share/nvim
+          key: ${{ runner.os }}-nvim-${{ matrix.nvim }}
+
+      - name: Install Dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/share/nvim/
+          curl -sL "https://github.com/neovim/neovim/releases/download/${{ matrix.nvim }}/nvim-linux64.tar.gz" | tar xzf - --strip-components=1 -C ~/.local/share/nvim/
+          git clone --depth 1 https://github.com/nvim-treesitter/nvim-treesitter.git ~/.local/share/nvim/site/pack/vendor/start/nvim-treesitter
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim ~/.local/share/nvim/site/pack/vendor/start/plenary.nvim
+          ln -s $(pwd) ~/.local/share/nvim/site/pack/vendor/start
+          nvim --headless -c "lua require('nvim-treesitter').setup {}" -c 'TSInstallSync all' -c 'q'
+          
+      - name: Run tests
+        run: |
+          nvim --version
+          nvim --headless -c 'PlenaryBustedDirectory tests/'
