@@ -90,6 +90,7 @@ function Ui:open()
   vim.keymap.set("n", config.keymaps.close, function()
     vim.api.nvim_buf_delete(self.ui_buf, {})
   end, { buffer = self.ui_buf })
+  vim.bo[self.ui_buf].filetype = "ssr"
   ts.start(self.ui_buf, lang)
 
   local function max_width(lines)
