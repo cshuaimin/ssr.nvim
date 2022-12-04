@@ -17,6 +17,8 @@ use {
     require("ssr").setup {
       min_width = 50,
       min_height = 5,
+      max_width = 120,
+      max_height = 25,
       keymaps = {
         close = "q",
         next_match = "n",
@@ -45,7 +47,8 @@ replace part of it with wildcards. A wildcard is an identifier starts with `$`,
 like `$name`. A `$name` wildcard in the search pattern will match any AST node
 and `$name` will reference it in the replacement.
 
-Press `<leader><cr>` to replace all matches in current buffer.
+Press `<leader><cr>` to replace all matches in current buffer, or `<cr>` to
+choose which match to replace.
 
 ## The context
 

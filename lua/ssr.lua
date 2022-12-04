@@ -15,6 +15,8 @@ local M = {}
 local config = {
   min_width = 50,
   min_height = 5,
+  max_width = 120,
+  max_height = 25,
   keymaps = {
     close = "q",
     next_match = "n",
@@ -73,7 +75,7 @@ function Ui:open()
   self.ui_buf = api.nvim_create_buf(false, true)
   api.nvim_buf_set_lines(self.ui_buf, 0, -1, true, placeholder)
   self.ns = api.nvim_create_namespace ""
-  self.cur_search_ns = api.nvim_create_namespace ""
+  self.cur_match_ns = api.nvim_create_namespace ""
 
   local function set_extmark(row, text)
     return api.nvim_buf_set_extmark(self.ui_buf, self.ns, row, 0, { virt_text = text, virt_text_pos = "overlay" })
@@ -112,7 +114,7 @@ function Ui:open()
   vim.bo[self.ui_buf].filetype = "ssr"
   ts.start(self.ui_buf, lang)
 
-  local function max_width(lines)
+  local function get_width(lines)
     local width = 0
     for _, line in ipairs(lines) do
       if #line > width then
@@ -122,6 +124,8 @@ function Ui:open()
     return width
   end
 
+  local width = math.min(math.max(get_width(placeholder), config.min_width), config.max_width)
+  local height = math.min(math.max(#placeholder, config.min_height), config.max_height)
   local win = api.nvim_open_win(self.ui_buf, true, {
     relative = "win",
     anchor = "NE",
@@ -129,8 +133,8 @@ function Ui:open()
     col = api.nvim_win_get_width(0) - 1,
     style = "minimal",
     border = "rounded",
-    width = math.max(max_width(placeholder), config.min_width),
-    height = math.max(#placeholder, config.min_height),
+    width = width,
+    height = height,
   })
   api.nvim_win_set_cursor(win, { 3, 0 })
   fn.matchadd("Title", [[$\w\+]])
@@ -138,11 +142,11 @@ function Ui:open()
     buffer = self.ui_buf,
     callback = function()
       local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
-      if #lines > api.nvim_win_get_height(win) then
+      if #lines ~= api.nvim_win_get_height(win) and #lines >= config.min_height and #lines <= config.max_height then
         api.nvim_win_set_height(win, #lines)
       end
-      local width = max_width(lines)
-      if width > api.nvim_win_get_width(win) then
+      local width = get_width(lines)
+      if width ~= api.nvim_win_get_width(win) and width >= config.min_width and width <= config.max_width then
         api.nvim_win_set_width(win, width)
       end
       self:search()
@@ -152,7 +156,7 @@ function Ui:open()
     buffer = self.ui_buf,
     callback = function(a)
       api.nvim_buf_clear_namespace(self.origin_buf, self.ns, 0, -1)
-      api.nvim_buf_clear_namespace(self.origin_buf, self.cur_search_ns, 0, -1)
+      api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
       keymap.del("n", "n", { buffer = self.origin_buf })
       keymap.del("n", "N", { buffer = self.origin_buf })
     end,
@@ -205,11 +209,11 @@ function Ui:prev_match_idx()
 end
 
 function Ui:goto_match(match_idx)
-  api.nvim_buf_clear_namespace(self.origin_buf, self.cur_search_ns, 0, -1)
+  api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
   local start_row, start_col, end_row, end_col = self.matches[match_idx].range:get(self.origin_buf)
   api.nvim_win_set_cursor(self.origin_win, { start_row + 1, start_col })
-  highlight.range(self.origin_buf, self.cur_search_ns, "CurSearch", { start_row, start_col }, { end_row, end_col }, {})
-  api.nvim_buf_set_extmark(self.origin_buf, self.cur_search_ns, start_row, start_col, {
+  highlight.range(self.origin_buf, self.cur_match_ns, "CurSearch", { start_row, start_col }, { end_row, end_col }, {})
+  api.nvim_buf_set_extmark(self.origin_buf, self.cur_match_ns, start_row, start_col, {
     virt_text_pos = "eol",
     virt_text = { { string.format("[%d/%d]", match_idx, #self.matches), "DiagnosticVirtualTextInfo" } },
   })
@@ -272,7 +276,7 @@ function Ui:replace_confirm()
         open_confirm_win()
       else
         api.nvim_buf_delete(confirm_buf, {})
-        api.nvim_buf_clear_namespace(self.origin_buf, self.cur_search_ns, 0, -1)
+        api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
       end
       self:set_status(string.format("%d/%d replaced", replaced, #self.matches))
     end, { buffer = confirm_buf, nowait = true })
