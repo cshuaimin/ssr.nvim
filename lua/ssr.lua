@@ -244,13 +244,13 @@ function Ui:replace_confirm()
   })
 
   local replaced = 0
-  local next_match = 1
+  local match_idx = 1
   local confirm_win = 0
   local _, template = self:get_input()
 
   local function open_confirm_win()
-    local start_row, start_col = self.matches[next_match].range:get(self.origin_buf)
-    api.nvim_win_set_cursor(self.origin_win, { start_row + 1, start_col })
+    self:goto_match(match_idx)
+    local start_row, start_col = self.matches[match_idx].range:get(self.origin_buf)
     confirm_win = api.nvim_open_win(confirm_buf, true, {
       title = "Replace?",
       title_pos = "center",
@@ -268,49 +268,50 @@ function Ui:replace_confirm()
     keymap.set("n", key, function()
       func()
       api.nvim_win_close(confirm_win, false)
-      if next_match <= #self.matches then
+      if match_idx <= #self.matches then
         open_confirm_win()
       else
         api.nvim_buf_delete(confirm_buf, {})
+        api.nvim_buf_clear_namespace(self.origin_buf, self.cur_search_ns, 0, -1)
       end
       self:set_status(string.format("%d/%d replaced", replaced, #self.matches))
     end, { buffer = confirm_buf, nowait = true })
   end
 
   map("y", function()
-    replace(self.origin_buf, self.matches[next_match], template)
+    replace(self.origin_buf, self.matches[match_idx], template)
     replaced = replaced + 1
-    next_match = next_match + 1
+    match_idx = match_idx + 1
   end)
 
   map("n", function()
-    next_match = next_match + 1
+    match_idx = match_idx + 1
   end)
 
   map("a", function()
-    for i = next_match, #self.matches do
+    for i = match_idx, #self.matches do
       replace(self.origin_buf, self.matches[i], template)
     end
-    replaced = replaced + #self.matches + 1 - next_match
-    next_match = #self.matches + 1
+    replaced = replaced + #self.matches + 1 - match_idx
+    match_idx = #self.matches + 1
   end)
 
   map("q", function()
-    next_match = #self.matches + 1
+    match_idx = #self.matches + 1
   end)
 
   map("<Esc>", function()
-    next_match = #self.matches + 1
+    match_idx = #self.matches + 1
   end)
 
   map("<C-[>", function()
-    next_match = #self.matches + 1
+    match_idx = #self.matches + 1
   end)
 
   map("l", function()
-    replace(self.origin_buf, self.matches[next_match], template)
+    replace(self.origin_buf, self.matches[match_idx], template)
     replaced = replaced + 1
-    next_match = #self.matches + 1
+    match_idx = #self.matches + 1
   end)
 
   local function origin_win_map(key)
