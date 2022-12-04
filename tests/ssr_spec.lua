@@ -173,7 +173,10 @@ describe("", function()
       assert(parser)
       local node, source = parser:parse(pattern)
       local matches = search(buf, node, source, ns)
-      replace(buf, matches, template)
+
+      for _, match in ipairs(matches) do
+        replace(buf, match, template)
+      end
 
       local actual = vim.api.nvim_buf_get_lines(buf, 0, -1, true)
       vim.api.nvim_buf_delete(buf, {})

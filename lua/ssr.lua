@@ -45,7 +45,6 @@ local help_msg = " (Press ? for help)"
 ---@field replace_extmark number
 ---@field last_pattern string
 ---@field matches Match[]
----@field cur_match number
 local Ui = {}
 Ui.__index = Ui
 
@@ -167,7 +166,6 @@ function Ui:search()
   end
   self.last_pattern = pattern
   self.matches = {}
-  self.cur_match = 0
   api.nvim_buf_clear_namespace(self.origin_buf, self.ns, 0, -1)
 
   local start = vim.loop.hrtime()

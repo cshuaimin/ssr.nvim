@@ -109,11 +109,11 @@ function M.search(buf, node, source, ns)
   table.sort(matches, function(match1, match2)
     local start_row1, start_col1, end_row1, end_col1 = match1.range:get(buf)
     local start_row2, start_col2, end_row2, end_col2 = match2.range:get(buf)
-    if end_row1 < start_row2 or (end_row1 == start_row2 and end_col1 < start_col2) then
+    if end_row1 < start_row2 or (end_row1 == start_row2 and end_col1 <= start_col2) then
       return true
     end
     return (start_row1 > start_row2 or (start_row1 == start_row2 and start_col1 > start_col2))
-      and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 < end_col2))
+      and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
   end)
 
   return matches
