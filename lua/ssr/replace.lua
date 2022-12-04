@@ -36,35 +36,26 @@ function ExtmarkRange:get(buf)
   return start[1], start[2], end_[1], end_[2]
 end
 
---- Render template and replace matches.
+--- Render template and replace one match.
 ---@param buf buffer
----@param matches Match[]
+---@param match Match
 ---@param template string
-function M.replace(buf, matches, template)
-  -- Replace inner matches first.
-  table.sort(matches, function(match1, match2)
-    local start_row1, start_col1 = match1.range:get(buf)
-    local start_row2, start_col2 = match2.range:get(buf)
-    return start_row1 > start_row2 or (start_row1 == start_row2 and start_col1 > start_col2)
+function M.replace(buf, match, template)
+  -- Render templates with captured nodes.
+  local replace = template:gsub("()%$([_%a%d]+)", function(pos, var)
+    local start_row, start_col, end_row, end_col = match.captures[var]:get(buf)
+    local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
+    utils.remove_indent(lines, utils.get_indent(buf, start_row))
+    local var_lines = vim.split(template:sub(1, pos), "\n")
+    local var_line = var_lines[#var_lines]
+    local template_indent = var_line:match "^%s*"
+    utils.add_indent(lines, template_indent)
+    return table.concat(lines, "\n")
   end)
-
-  for _, match in ipairs(matches) do
-    -- Render templates with captured nodes.
-    local replace = template:gsub("()%$([_%a%d]+)", function(pos, var)
-      local start_row, start_col, end_row, end_col = match.captures[var]:get(buf)
-      local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
-      utils.remove_indent(lines, utils.get_indent(buf, start_row))
-      local var_lines = vim.split(template:sub(1, pos), "\n")
-      local var_line = var_lines[#var_lines]
-      local template_indent = var_line:match "^%s*"
-      utils.add_indent(lines, template_indent)
-      return table.concat(lines, "\n")
-    end)
-    replace = vim.split(replace, "\n")
-    local start_row, start_col, end_row, end_col = match.range:get(buf)
-    utils.add_indent(replace, utils.get_indent(buf, start_row))
-    api.nvim_buf_set_text(buf, start_row, start_col, end_row, end_col, replace)
-  end
+  replace = vim.split(replace, "\n")
+  local start_row, start_col, end_row, end_col = match.range:get(buf)
+  utils.add_indent(replace, utils.get_indent(buf, start_row))
+  api.nvim_buf_set_text(buf, start_row, start_col, end_row, end_col, replace)
 end
 
 return M
