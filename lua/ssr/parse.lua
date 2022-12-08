@@ -60,7 +60,7 @@ function Parser:new(buf, origin_node)
     local str = ts.get_node_text(context, buf)
     local root = ts.get_string_parser(str, o.lang):parse()[1]:root()
     local node = root:named_descendant_for_range(o:get_relative_range(origin_text))
-    if node:type() == origin_node:type() then
+    if node:sexpr() == origin_node:sexpr() then
       local start_byte
       o.context.start_row, o.context.start_col, start_byte = context:start()
       o.context.before = str:sub(1, origin_start_byte - start_byte)

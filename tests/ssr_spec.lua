@@ -139,6 +139,22 @@ foo($a, $b) ==>> ($a).foo($b)
 String::from((y + 5).foo(z))
 ]]
 
+t [[ go parsed correctly
+func main() {
+  <commit, _ := os.LookupEnv("GITHUB_SHA")>
+  print(commit)
+}
+====
+$a, _ := os.LookupEnv($b)
+==>>
+$a := os.Getenv($b)
+====
+func main() {
+  commit := os.Getenv("GITHUB_SHA")
+  print(commit)
+}
+]]
+
 describe("", function()
   for _, s in ipairs(tests) do
     local ft, desc, content, pattern, template, expected =
