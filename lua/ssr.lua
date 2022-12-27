@@ -262,9 +262,7 @@ function Ui:replace_confirm()
   local function open_confirm_win()
     self:goto_match(match_idx)
     local _, _, end_row, end_col = self.matches[match_idx].range:get(self.origin_buf)
-    confirm_win = api.nvim_open_win(confirm_buf, true, {
-      title = "Replace?",
-      title_pos = "center",
+    local cfg = {
       relative = "win",
       win = self.origin_win,
       bufpos = { end_row, end_col },
@@ -272,7 +270,12 @@ function Ui:replace_confirm()
       border = "rounded",
       width = 14,
       height = 6,
-    })
+    }
+    if vim.fn.has "nvim-0.9" == 1 then
+      cfg.title = "Replace?"
+      cfg.title_pos = "center"
+    end
+    confirm_win = api.nvim_open_win(confirm_buf, true, cfg)
   end
 
   local function map(key, func)
