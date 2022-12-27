@@ -212,7 +212,14 @@ function Ui:goto_match(match_idx)
   api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
   local start_row, start_col, end_row, end_col = self.matches[match_idx].range:get(self.origin_buf)
   api.nvim_win_set_cursor(self.origin_win, { start_row + 1, start_col })
-  highlight.range(self.origin_buf, self.cur_match_ns, "CurSearch", { start_row, start_col }, { end_row, end_col }, {})
+  highlight.range(
+    self.origin_buf,
+    self.cur_match_ns,
+    "CurSearch",
+    { start_row, start_col },
+    { end_row, end_col },
+    { priority = vim.highlight.priorities.user + 100 }
+  )
   api.nvim_buf_set_extmark(self.origin_buf, self.cur_match_ns, start_row, start_col, {
     virt_text_pos = "eol",
     virt_text = { { string.format("[%d/%d]", match_idx, #self.matches), "DiagnosticVirtualTextInfo" } },
