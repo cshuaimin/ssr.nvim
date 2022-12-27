@@ -261,13 +261,13 @@ function Ui:replace_confirm()
 
   local function open_confirm_win()
     self:goto_match(match_idx)
-    local start_row, start_col = self.matches[match_idx].range:get(self.origin_buf)
+    local _, _, end_row, end_col = self.matches[match_idx].range:get(self.origin_buf)
     confirm_win = api.nvim_open_win(confirm_buf, true, {
       title = "Replace?",
       title_pos = "center",
       relative = "win",
       win = self.origin_win,
-      bufpos = { start_row, start_col },
+      bufpos = { end_row, end_col },
       style = "minimal",
       border = "rounded",
       width = 14,
