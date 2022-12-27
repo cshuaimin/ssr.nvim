@@ -56,23 +56,23 @@ function M.node_for_range(buf, start_row, start_col, end_row, end_col)
   return M.get_root(buf):named_descendant_for_range(start_row, start_col, end_row, end_col)
 end
 
---- @param buf buffer
---- @param row number
+---@param buf buffer
+---@param row number
 function M.get_indent(buf, row)
   local line = api.nvim_buf_get_lines(buf, row, row + 1, true)[1]
   return line:match "^%s*"
 end
 
---- @param lines table
---- @param indent string
+---@param lines table
+---@param indent string
 function M.add_indent(lines, indent)
   for i = 2, #lines do
     lines[i] = indent .. lines[i]
   end
 end
 
---- @param lines table
---- @param indent string
+---@param lines table
+---@param indent string
 function M.remove_indent(lines, indent)
   indent = "^" .. indent
   for i, line in ipairs(lines) do
