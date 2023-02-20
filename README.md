@@ -15,6 +15,7 @@ use {
   -- Calling setup is optional.
   config = function()
     require("ssr").setup {
+      border = "rounded",
       min_width = 50,
       min_height = 5,
       max_width = 120,
