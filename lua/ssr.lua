@@ -13,6 +13,7 @@ local M = {}
 
 ---@class Config
 local config = {
+  border = "rounded",
   min_width = 50,
   min_height = 5,
   max_width = 120,
@@ -132,7 +133,7 @@ function Ui:open()
     row = 1,
     col = api.nvim_win_get_width(0) - 1,
     style = "minimal",
-    border = "rounded",
+    border = config.border,
     width = width,
     height = height,
   })
@@ -267,7 +268,7 @@ function Ui:replace_confirm()
       win = self.origin_win,
       bufpos = { end_row, end_col },
       style = "minimal",
-      border = "rounded",
+      border = config.border,
       width = 14,
       height = 6,
     }
