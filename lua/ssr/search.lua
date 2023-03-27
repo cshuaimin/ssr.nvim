@@ -91,7 +91,8 @@ end
 ---@return Match[]
 function M.search(buf, node, source, ns)
   local sexpr, wildcards = build_sexpr(node, source)
-  local query = ts.parse_query(parsers.get_buf_lang(buf), sexpr)
+  local parse_query = ts.query.parse or ts.parse_query
+  local query = parse_query(parsers.get_buf_lang(buf), sexpr)
   local matches = {}
   local root = utils.get_root(buf)
   for _, nodes in query:iter_matches(root, buf, 0, -1) do
