@@ -80,4 +80,13 @@ function M.remove_indent(lines, indent)
   end
 end
 
+--- Escape special characters in s and quote it in double quotes.
+---@param s string
+function M.to_ts_query_str(s)
+  s = s:gsub([[\]], [[\\]])
+  s = s:gsub([["]], [[\"]])
+  s = s:gsub("\n", [[\n]])
+  return '"' .. s .. '"'
+end
+
 return M

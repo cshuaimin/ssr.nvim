@@ -39,9 +39,6 @@ local function build_sexpr(node, source)
     -- Special identifier __ssr_var_name is a named wildcard.
     local var = text:match("^" .. wildcard_prefix .. "([_%a%d]+)$")
     if var then
-      -- local row = node:start()
-      -- local indent = api.nvim_buf_get_lines(source, row, row + 1, true)[1]
-      -- indent = string.match(indent, "^%s*")
       wildcards[var] = next_idx
       next_idx = next_idx + 1
       return "(_) @" .. var
@@ -49,10 +46,8 @@ local function build_sexpr(node, source)
 
     -- Leaf nodes (keyword, identifier, literal and symbol) should match text.
     if node:named_child_count() == 0 then
-      text = text:gsub([[\]], [[\\]])
-      text = text:gsub('"', '\\"')
-      text = text:gsub("\n", "\\n")
-      local sexpr = string.format('(%s) @_%d (#eq? @_%d "%s")', node:type(), next_idx, next_idx, text)
+      local sexpr =
+        string.format("(%s) @_%d (#eq? @_%d %s)", node:type(), next_idx, next_idx, utils.to_ts_query_str(text))
       next_idx = next_idx + 1
       return sexpr
     end
@@ -65,7 +60,7 @@ local function build_sexpr(node, source)
       if name and child:named() then
         sexpr = sexpr .. string.format(" %s: %s", name, build(child))
       elseif name and not child:named() then
-        sexpr = sexpr .. string.format(' %s: "%s"', name, child:type())
+        sexpr = sexpr .. string.format(" %s: %s", name, utils.to_ts_query_str(child:type()))
       elseif not name and child:named() then
         -- Pin child position with anchor `.`
         sexpr = string.format(" %s . %s", sexpr, build(child))
