@@ -30,7 +30,7 @@ function Parser:get_relative_range(text)
   return start_row, start_col, end_row, end_col
 end
 
----@param origin_node userdata
+---@param origin_node TSNode
 ---@param buf buffer
 ---@return Parser?
 function Parser:new(buf, origin_node)
@@ -78,7 +78,7 @@ end
 
 -- Parse search pattern to syntax tree in proper context.
 ---@param pattern string
----@return userdata?, string?
+---@return TSNode?, string?
 function Parser:parse(pattern)
   -- Replace named wildcard $name to identifier __ssr_var_name to avoid syntax error.
   pattern = pattern:gsub("%$([_%a%d]+)", M.wildcard_prefix .. "%1")

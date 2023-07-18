@@ -12,7 +12,7 @@ ExtmarkRange.__index = ExtmarkRange
 M.ExtmarkRange = ExtmarkRange
 
 ---@param buf buffer
----@param node userdata
+---@param node TSNode
 ---@param ns number
 ---@return ExtmarkRange
 function ExtmarkRange:new(buf, node, ns)

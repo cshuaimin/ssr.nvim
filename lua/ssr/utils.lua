@@ -41,7 +41,7 @@ function M.get_selection(win)
 end
 
 ---@param buf buffer
----@return userdata
+---@return TSNode
 function M.get_root(buf)
   return parsers.get_parser(buf):parse()[1]:root()
 end
@@ -51,7 +51,7 @@ end
 ---@param start_col number
 ---@param end_row number
 ---@param end_col number
----@return userdata
+---@return TSNode
 function M.node_for_range(buf, start_row, start_col, end_row, end_col)
   return M.get_root(buf):named_descendant_for_range(start_row, start_col, end_row, end_col)
 end
