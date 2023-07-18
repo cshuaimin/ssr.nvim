@@ -25,7 +25,7 @@ function Match:new(range, captures)
 end
 
 -- Build a TS sexpr represting the node.
----@param node userdata
+---@param node TSNode
 ---@param source string
 ---@return string, table<string, number>
 local function build_sexpr(node, source)
@@ -81,7 +81,7 @@ local function build_sexpr(node, source)
 end
 
 ---@param buf buffer
----@param node userdata
+---@param node TSNode
 ---@param source string
 ---@return Match[]
 function M.search(buf, node, source, ns)
