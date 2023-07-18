@@ -56,23 +56,33 @@ function Ui:new()
   return setmetatable({}, self)
 end
 
-function Ui:open()
+function Ui:open(use_last_input)
+  if use_last_input and not (M._last_node and M._last_pattern) then
+    return utils.notify("Error opening last ssr.nvim window: no last window")
+  end
   self.origin_win = api.nvim_get_current_win()
   self.origin_buf = api.nvim_win_get_buf(self.origin_win)
   local lang = parsers.get_buf_lang(self.origin_buf)
   if not parsers.has_parser(lang) then
     return utils.notify("Treesitter parser not found, please try to install it with :TSInstall " .. lang)
   end
-  local origin_node = utils.node_for_range(self.origin_buf, utils.get_selection(self.origin_win))
-  local parser = Parser:new(self.origin_buf, origin_node)
+  local origin_node = use_last_input and M._last_node
+    or utils.node_for_range(self.origin_buf, utils.get_selection(self.origin_win))
+  local parser = use_last_input and M._last_parser
+    or Parser:new(self.origin_buf, origin_node)
   if not parser then
     return
   end
   self.parser = parser
-  local placeholder = ts.get_node_text(origin_node, self.origin_buf)
+  M._last_node = origin_node
+  M._last_parser = parser
+  local placeholder = use_last_input and M._last_pattern
+    or ts.get_node_text(origin_node, self.origin_buf)
   placeholder = "\n\n" .. placeholder .. "\n\n"
   placeholder = vim.split(placeholder, "\n")
-  utils.remove_indent(placeholder, utils.get_indent(self.origin_buf, origin_node:start()))
+  if not use_last_input then
+    utils.remove_indent(placeholder, utils.get_indent(self.origin_buf, origin_node:start()))
+  end
   self.ui_buf = api.nvim_create_buf(false, true)
   api.nvim_buf_set_lines(self.ui_buf, 0, -1, true, placeholder)
   self.ns = api.nvim_create_namespace ""
@@ -85,6 +95,9 @@ function Ui:open()
   self.status_extmark = set_extmark(0, { { "[SSR]", "Comment" }, { help_msg, "Comment" } })
   self.search_extmark = set_extmark(1, { { "SEARCH:", "String" } })
   self.replace_extmark = set_extmark(#placeholder - 2, { { "REPLACE:", "String" } })
+  if use_last_input then
+    api.nvim_buf_set_lines(self.ui_buf, #placeholder - 1, -1, true, vim.split(M._last_template, "\n"))
+  end
 
   local function map(key, func)
     keymap.set("n", key, function()
@@ -352,6 +365,8 @@ function Ui:get_input()
   local template_pos = api.nvim_buf_get_extmark_by_id(self.ui_buf, self.ns, self.replace_extmark, {})[1]
   local pattern = vim.trim(table.concat(lines, "\n", pattern_pos + 2, template_pos))
   local template = vim.trim(table.concat(lines, "\n", template_pos + 1, #lines))
+  M._last_pattern = pattern
+  M._last_template = template
   return pattern, template
 end
 
@@ -369,6 +384,10 @@ end
 
 function M.open()
   Ui:new():open()
+end
+
+function M.reopen()
+  Ui:new():open(true)
 end
 
 return M
