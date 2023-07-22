@@ -4,10 +4,10 @@ local fn = vim.fn
 local keymap = vim.keymap
 local highlight = vim.highlight
 local parsers = require "nvim-treesitter.parsers"
-local Parser = require("ssr.parse").Parser
+local ParseContext = require("ssr.parse").ParseContext
 local search = require("ssr.search").search
-local replace = require("ssr.replace").replace
-local utils = require "ssr.utils"
+local replace = require("ssr.search").replace
+local u = require "ssr.utils"
 
 local M = {}
 
@@ -34,64 +34,67 @@ function M.setup(cfg)
   end
 end
 
-local help_msg = " (Press ? for help)"
-
 ---@class Ui
----@field origin_win window
----@field origin_buf buffer
----@field ui_buf buffer
 ---@field ns number
 ---@field cur_search_ns number
----@field parser Parser
----@field status_extmark number
----@field search_extmark number
----@field replace_extmark number
----@field last_pattern string
----@field matches Match[]
+---@field augroup number
+---@field ui_buf buffer
+---@field extmarks {status: number, search: number, replace: number}
+---@field origin_win window
+---@field lang string
+---@field parse_context ParseContext
+---@field buf_matches table<buffer, Match[]>
 local Ui = {}
-Ui.__index = Ui
 
----@return Ui
-function Ui:new()
-  return setmetatable({}, self)
-end
+---@return Ui?
+function Ui.new()
+  local self = setmetatable({}, { __index = Ui })
 
-function Ui:open()
   self.origin_win = api.nvim_get_current_win()
-  self.origin_buf = api.nvim_win_get_buf(self.origin_win)
-  local lang = parsers.get_buf_lang(self.origin_buf)
-  if not parsers.has_parser(lang) then
-    return utils.notify("Treesitter parser not found, please try to install it with :TSInstall " .. lang)
+  local origin_buf = api.nvim_win_get_buf(self.origin_win)
+  self.lang = parsers.get_buf_lang(origin_buf)
+  if not parsers.has_parser(self.lang) then
+    return u.notify("Treesitter parser not found, please try to install it with :TSInstall " .. self.lang)
   end
-  local origin_node = utils.node_for_range(self.origin_buf, utils.get_selection(self.origin_win))
-  local parser = Parser:new(self.origin_buf, origin_node)
-  if not parser then
-    return
+  local origin_node = u.node_for_range(origin_buf, u.get_selection(self.origin_win))
+  local parse_context = ParseContext.new(origin_buf, origin_node)
+  if not parse_context then
+    return u.notify "Can't find a proper context to parse the pattern"
   end
-  self.parser = parser
-  local placeholder = ts.get_node_text(origin_node, self.origin_buf)
+  self.parse_context = parse_context
+
+  self.buf_matches = {}
+  self.ns = api.nvim_create_namespace("ssr_" .. self.origin_win) -- TODO
+  self.cur_search_ns = api.nvim_create_namespace("ssr_cur_match_" .. self.origin_win)
+  self.augroup = api.nvim_create_augroup("ssr_augroup_" .. self.origin_win, {})
+
+  -- Init ui buffer
+  self.ui_buf = api.nvim_create_buf(false, true)
+  vim.bo[self.ui_buf].bufhidden = "wipe"
+  vim.bo[self.ui_buf].filetype = "ssr"
+
+  local placeholder = ts.get_node_text(origin_node, origin_buf)
   placeholder = "\n\n" .. placeholder .. "\n\n"
   placeholder = vim.split(placeholder, "\n")
-  utils.remove_indent(placeholder, utils.get_indent(self.origin_buf, origin_node:start()))
-  self.ui_buf = api.nvim_create_buf(false, true)
+  u.remove_indent(placeholder, u.get_indent(origin_buf, origin_node:start()))
   api.nvim_buf_set_lines(self.ui_buf, 0, -1, true, placeholder)
-  self.ns = api.nvim_create_namespace ""
-  self.cur_match_ns = api.nvim_create_namespace ""
+  -- Enable syntax highlights
+  ts.start(self.ui_buf, self.lang)
 
-  local function set_extmark(row, text)
+  local function virt_text(row, text)
     return api.nvim_buf_set_extmark(self.ui_buf, self.ns, row, 0, { virt_text = text, virt_text_pos = "overlay" })
   end
-
-  self.status_extmark = set_extmark(0, { { "[SSR]", "Comment" }, { help_msg, "Comment" } })
-  self.search_extmark = set_extmark(1, { { "SEARCH:", "String" } })
-  self.replace_extmark = set_extmark(#placeholder - 2, { { "REPLACE:", "String" } })
+  self.extmarks = {
+    status = virt_text(0, { { "[SSR]", "Comment" }, { " (Press ? for help)", "Comment" } }),
+    search = virt_text(1, { { "SEARCH:", "String" } }),
+    replace = virt_text(#placeholder - 2, { { "REPLACE:", "String" } }),
+  }
 
   local function map(key, func)
     keymap.set("n", key, function()
       func(self)
     end, { buffer = self.ui_buf, nowait = true })
   end
-
   map(config.keymaps.replace_confirm, self.replace_confirm)
   map(config.keymaps.replace_all, self.replace_all)
   map(config.keymaps.next_match, function()
@@ -104,29 +107,8 @@ function Ui:open()
     api.nvim_buf_delete(self.ui_buf, {})
   end)
 
-  -- Remap n/N in original buffer too.
-  keymap.set("n", "n", function()
-    self:goto_match(self:next_match_idx())
-  end, { buffer = self.origin_buf })
-  keymap.set("n", "N", function()
-    self:goto_match(self:prev_match_idx())
-  end, { buffer = self.origin_buf })
-
-  vim.bo[self.ui_buf].filetype = "ssr"
-  ts.start(self.ui_buf, lang)
-
-  local function get_width(lines)
-    local width = 0
-    for _, line in ipairs(lines) do
-      if #line > width then
-        width = #line
-      end
-    end
-    return width
-  end
-
-  local width = math.min(math.max(get_width(placeholder), config.min_width), config.max_width)
-  local height = math.min(math.max(#placeholder, config.min_height), config.max_height)
+  -- Open float window
+  local width, height = u.get_win_size(placeholder, config)
   local win = api.nvim_open_win(self.ui_buf, true, {
     relative = "win",
     anchor = "NE",
@@ -137,60 +119,79 @@ function Ui:open()
     width = width,
     height = height,
   })
-  api.nvim_win_set_cursor(win, { 3, 0 })
+  u.set_cursor(win, 2, 0)
   fn.matchadd("Title", [[$\w\+]])
+
   api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = self.augroup,
     buffer = self.ui_buf,
     callback = function()
       local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
-      if #lines ~= api.nvim_win_get_height(win) and #lines >= config.min_height and #lines <= config.max_height then
-        api.nvim_win_set_height(win, #lines)
-      end
-      local width = get_width(lines)
-      if width ~= api.nvim_win_get_width(win) and width >= config.min_width and width <= config.max_width then
+      local width, height = u.get_win_size(lines, config)
+      if api.nvim_win_get_width(win) ~= width then
         api.nvim_win_set_width(win, width)
+      end
+      if api.nvim_win_get_height(win) ~= height then
+        api.nvim_win_set_height(win, height)
       end
       self:search()
     end,
   })
-  api.nvim_create_autocmd({ "WinClosed" }, {
-    buffer = self.ui_buf,
-    callback = function()
-      api.nvim_buf_clear_namespace(self.origin_buf, self.ns, 0, -1)
-      api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
-      keymap.del("n", "n", { buffer = self.origin_buf })
-      keymap.del("n", "N", { buffer = self.origin_buf })
+
+  -- SSR window is bound to the original window (not buffer!).
+  -- Re-search in every buffer shows up in original window.
+  api.nvim_create_autocmd("BufWinEnter", {
+    group = self.augroup,
+    callback = function(event)
+      -- Not shows in the original window
+      if event.buf ~= api.nvim_win_get_buf(self.origin_win) then
+        return
+      end
+      self:search()
     end,
   })
+
+  api.nvim_create_autocmd("WinClosed", {
+    group = self.augroup,
+    buffer = self.ui_buf,
+    callback = function()
+      for buf in ipairs(self.buf_matches) do
+        api.nvim_buf_clear_namespace(buf, self.ns, 0, -1)
+        api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
+      end
+      api.nvim_clear_autocmds { group = self.augroup }
+    end,
+  })
+
+  return self
 end
 
 function Ui:search()
   local pattern = self:get_input()
-  if pattern == self.last_pattern then
-    return
-  end
-  self.last_pattern = pattern
-  self.matches = {}
-  api.nvim_buf_clear_namespace(self.origin_buf, self.ns, 0, -1)
+  local buf = api.nvim_win_get_buf(self.origin_win)
+  self.buf_matches[buf] = {}
+  api.nvim_buf_clear_namespace(buf, self.ns, 0, -1)
+  api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
 
   local start = vim.loop.hrtime()
-  local node, source = self.parser:parse(pattern)
-  if not node then
+  local node, source = self.parse_context:parse(pattern)
+  if node:has_error() then
     return self:set_status "Error"
   end
-  self.matches = search(self.origin_buf, node, source, self.ns)
+  self.buf_matches[buf] = search(buf, node, source, self.ns)
   local elapsed = (vim.loop.hrtime() - start) / 1E6
-  for _, match in ipairs(self.matches) do
-    local start_row, start_col, end_row, end_col = match.range:get(self.origin_buf)
-    highlight.range(self.origin_buf, self.ns, "Search", { start_row, start_col }, { end_row, end_col }, {})
+  for _, match in ipairs(self.buf_matches[buf]) do
+    local start_row, start_col, end_row, end_col = match.range:get()
+    highlight.range(buf, self.ns, "Search", { start_row, start_col }, { end_row, end_col }, {})
   end
-  self:set_status(string.format("%d found in %dms", #self.matches, elapsed))
+  self:set_status(string.format("%d found in %dms", #self.buf_matches[buf], elapsed))
 end
 
 function Ui:next_match_idx()
-  local cursor_row, cursor_col = utils.get_cursor(self.origin_win)
-  for idx in ipairs(self.matches) do
-    local start_row, start_col, end_row, end_col = self.matches[idx].range:get(self.origin_buf)
+  local cursor_row, cursor_col = u.get_cursor(self.origin_win)
+  local buf = api.nvim_win_get_buf(self.origin_win)
+  for idx, matches in pairs(self.buf_matches[buf]) do
+    local start_row, start_col = matches.range:get()
     if start_row > cursor_row or (start_row == cursor_row and start_col > cursor_col) then
       return idx
     end
@@ -199,70 +200,83 @@ function Ui:next_match_idx()
 end
 
 function Ui:prev_match_idx()
-  local cursor_row, cursor_col = utils.get_cursor(self.origin_win)
-  for idx = #self.matches, 1, -1 do
-    local start_row, start_col, end_row, end_col = self.matches[idx].range:get(self.origin_buf)
+  local cursor_row, cursor_col = u.get_cursor(self.origin_win)
+  local buf = api.nvim_win_get_buf(self.origin_win)
+  local matches = self.buf_matches[buf]
+  for idx = #matches, 1, -1 do
+    local start_row, start_col = matches[idx].range:get()
     if start_row < cursor_row or (start_row == cursor_row and start_col < cursor_col) then
       return idx
     end
   end
-  return #self.matches
+  return #matches
 end
 
 function Ui:goto_match(match_idx)
-  api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
-  local start_row, start_col, end_row, end_col = self.matches[match_idx].range:get(self.origin_buf)
-  api.nvim_win_set_cursor(self.origin_win, { start_row + 1, start_col })
+  local buf = api.nvim_win_get_buf(self.origin_win)
+  api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
+  local matches = self.buf_matches[buf]
+  local start_row, start_col, end_row, end_col = matches[match_idx].range:get()
+  u.set_cursor(self.origin_win, start_row, start_col)
   highlight.range(
-    self.origin_buf,
-    self.cur_match_ns,
+    buf,
+    self.cur_search_ns,
     "CurSearch",
     { start_row, start_col },
     { end_row, end_col },
     { priority = vim.highlight.priorities.user + 100 }
   )
-  api.nvim_buf_set_extmark(self.origin_buf, self.cur_match_ns, start_row, start_col, {
+  api.nvim_buf_set_extmark(buf, self.cur_search_ns, start_row, start_col, {
     virt_text_pos = "eol",
-    virt_text = { { string.format("[%d/%d]", match_idx, #self.matches), "DiagnosticVirtualTextInfo" } },
+    virt_text = { { string.format("[%d/%d]", match_idx, #matches), "DiagnosticVirtualTextInfo" } },
   })
 end
 
 function Ui:replace_all()
-  if #self.matches == 0 then
+  self:search()
+  local buf = api.nvim_win_get_buf(self.origin_win)
+  local matches = self.buf_matches[buf]
+  if #matches == 0 then
     return self:set_status "pattern not found"
   end
   local _, template = self:get_input()
   local start = vim.loop.hrtime()
-  for _, match in ipairs(self.matches) do
-    replace(self.origin_buf, match, template)
+  for _, match in ipairs(matches) do
+    replace(buf, match, template)
   end
   local elapsed = (vim.loop.hrtime() - start) / 1E6
-  self:set_status(string.format("%d replaced in %dms", #self.matches, elapsed))
+  self:set_status(string.format("%d replaced in %dms", #matches, elapsed))
 end
 
 function Ui:replace_confirm()
-  if #self.matches == 0 then
+  self:search()
+  local buf = api.nvim_win_get_buf(self.origin_win)
+  vim.bo[buf].bufhidden = "hide"
+  local matches = self.buf_matches[buf]
+  if #matches == 0 then
     return self:set_status "pattern not found"
   end
 
   local confirm_buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(confirm_buf, 0, -1, true, {
-    "[y]es",
-    "[n]o",
+  local choices = {
+    "• Yes",
+    "• No",
     "──────────────",
-    "[a]ll",
-    "[q]uit",
-    "[l]ast replace",
-  })
+    "• All",
+    "• Quit",
+    "• Last replace",
+  }
+  local separator_idx = 3
+  api.nvim_buf_set_lines(confirm_buf, 0, -1, true, choices)
+  for idx = 0, #choices - 1 do
+    if idx + 1 ~= separator_idx then
+      api.nvim_buf_set_extmark(confirm_buf, self.ns, idx, 4, { hl_group = "Underlined", end_row = idx, end_col = 5 })
+    end
+  end
 
-  local replaced = 0
-  local match_idx = 1
-  local confirm_win = 0
-  local _, template = self:get_input()
-
-  local function open_confirm_win()
+  local function open_confirm_win(match_idx)
     self:goto_match(match_idx)
-    local _, _, end_row, end_col = self.matches[match_idx].range:get(self.origin_buf)
+    local _, _, end_row, end_col = matches[match_idx].range:get()
     local cfg = {
       relative = "win",
       win = self.origin_win,
@@ -351,8 +365,8 @@ end
 
 function Ui:get_input()
   local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
-  local pattern_pos = api.nvim_buf_get_extmark_by_id(self.ui_buf, self.ns, self.search_extmark, {})[1]
-  local template_pos = api.nvim_buf_get_extmark_by_id(self.ui_buf, self.ns, self.replace_extmark, {})[1]
+  local pattern_pos = api.nvim_buf_get_extmark_by_id(self.ui_buf, self.ns, self.extmarks.search, {})[1]
+  local template_pos = api.nvim_buf_get_extmark_by_id(self.ui_buf, self.ns, self.extmarks.replace, {})[1]
   local pattern = vim.trim(table.concat(lines, "\n", pattern_pos + 2, template_pos))
   local template = vim.trim(table.concat(lines, "\n", template_pos + 1, #lines))
   return pattern, template
@@ -360,18 +374,18 @@ end
 
 function Ui:set_status(status)
   api.nvim_buf_set_extmark(self.ui_buf, self.ns, 0, 0, {
-    id = self.status_extmark,
+    id = self.extmarks.status,
     virt_text = {
       { "[SSR] ", "Comment" },
       { status },
-      { help_msg, "Comment" },
+      { " (Press ? for help)", "Comment" },
     },
     virt_text_pos = "overlay",
   })
 end
 
 function M.open()
-  Ui:new():open()
+  return Ui.new()
 end
 
 return M
