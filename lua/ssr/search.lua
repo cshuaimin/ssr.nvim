@@ -1,27 +1,44 @@
--- Search for matches.
--- We convert syntax tree to treesitter's query DSL, actual searching is done by treesitter.
-
+local api = vim.api
 local ts = vim.treesitter
 local parsers = require "nvim-treesitter.parsers"
-local utils = require "ssr.utils"
+local u = require "ssr.utils"
 local wildcard_prefix = require("ssr.parse").wildcard_prefix
-local ExtmarkRange = require("ssr.replace").ExtmarkRange
 
 local M = {}
 
 ---@class Match
 ---@field range ExtmarkRange
 ---@field captures ExtmarkRange[]
-local Match = {}
 
----@param range ExtmarkRange
----@param captures table<string, ExtmarkRange>
----@return Match
-function Match:new(range, captures)
+---@class ExtmarkRange
+---@field ns number
+---@field buf buffer
+---@field extmark number
+local ExtmarkRange = {}
+M.ExtmarkRange = ExtmarkRange
+
+---@param ns number
+---@param buf buffer
+---@param node TSNode
+---@return ExtmarkRange
+function ExtmarkRange.new(ns, buf, node)
+  local start_row, start_col, end_row, end_col = node:range()
   return setmetatable({
-    range = range,
-    captures = captures,
-  }, self)
+    ns = ns,
+    buf = buf,
+    extmark = api.nvim_buf_set_extmark(buf, ns, start_row, start_col, {
+      end_row = end_row,
+      end_col = end_col,
+      right_gravity = false,
+      end_right_gravity = true,
+    }),
+  }, { __index = ExtmarkRange })
+end
+
+---@return number, number, number, number
+function ExtmarkRange:get()
+  local extmark = api.nvim_buf_get_extmark_by_id(self.buf, self.ns, self.extmark, { details = true })
+  return extmark[1], extmark[2], extmark[3].end_row, extmark[3].end_col
 end
 
 -- Build a TS sexpr represting the node.
@@ -46,8 +63,7 @@ local function build_sexpr(node, source)
 
     -- Leaf nodes (keyword, identifier, literal and symbol) should match text.
     if node:named_child_count() == 0 then
-      local sexpr =
-        string.format("(%s) @_%d (#eq? @_%d %s)", node:type(), next_idx, next_idx, utils.to_ts_query_str(text))
+      local sexpr = string.format("(%s) @_%d (#eq? @_%d %s)", node:type(), next_idx, next_idx, u.to_ts_query_str(text))
       next_idx = next_idx + 1
       return sexpr
     end
@@ -60,7 +76,7 @@ local function build_sexpr(node, source)
       if name and child:named() then
         sexpr = sexpr .. string.format(" %s: %s", name, build(child))
       elseif name and not child:named() then
-        sexpr = sexpr .. string.format(" %s: %s", name, utils.to_ts_query_str(child:type()))
+        sexpr = sexpr .. string.format(" %s: %s", name, u.to_ts_query_str(child:type()))
       elseif not name and child:named() then
         -- Pin child position with anchor `.`
         sexpr = string.format(" %s . %s", sexpr, build(child))
@@ -89,13 +105,13 @@ function M.search(buf, node, source, ns)
   local parse_query = ts.query.parse or ts.parse_query
   local query = parse_query(parsers.get_buf_lang(buf), sexpr)
   local matches = {}
-  local root = utils.get_root(buf)
+  local root = u.get_root(buf)
   for _, nodes in query:iter_matches(root, buf, 0, -1) do
     local captures = {}
     for var, idx in pairs(wildcards) do
-      captures[var] = ExtmarkRange:new(buf, nodes[idx], ns)
+      captures[var] = ExtmarkRange.new(ns, buf, nodes[idx])
     end
-    local match = Match:new(ExtmarkRange:new(buf, nodes[#nodes], ns), captures)
+    local match = { range = ExtmarkRange.new(ns, buf, nodes[#nodes]), captures = captures }
     table.insert(matches, match)
   end
 
@@ -103,8 +119,8 @@ function M.search(buf, node, source, ns)
   --  buffer top to bottom, to make goto next/prev match intuitive
   --  inner to outer for recursive matches, to make replacing correct
   table.sort(matches, function(match1, match2)
-    local start_row1, start_col1, end_row1, end_col1 = match1.range:get(buf)
-    local start_row2, start_col2, end_row2, end_col2 = match2.range:get(buf)
+    local start_row1, start_col1, end_row1, end_col1 = match1.range:get()
+    local start_row2, start_col2, end_row2, end_col2 = match2.range:get()
     if end_row1 < start_row2 or (end_row1 == start_row2 and end_col1 <= start_col2) then
       return true
     end
@@ -113,6 +129,28 @@ function M.search(buf, node, source, ns)
   end)
 
   return matches
+end
+
+--- Render template and replace one match.
+---@param buf buffer
+---@param match Match
+---@param template string
+function M.replace(buf, match, template)
+  -- Render templates with captured nodes.
+  local replace = template:gsub("()%$([_%a%d]+)", function(pos, var)
+    local start_row, start_col, end_row, end_col = match.captures[var]:get()
+    local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
+    u.remove_indent(lines, u.get_indent(buf, start_row))
+    local var_lines = vim.split(template:sub(1, pos), "\n")
+    local var_line = var_lines[#var_lines]
+    local template_indent = var_line:match "^%s*"
+    u.add_indent(lines, template_indent)
+    return table.concat(lines, "\n")
+  end)
+  replace = vim.split(replace, "\n")
+  local start_row, start_col, end_row, end_col = match.range:get()
+  u.add_indent(replace, u.get_indent(buf, start_row))
+  api.nvim_buf_set_text(buf, start_row, start_col, end_row, end_col, replace)
 end
 
 return M
