@@ -1,93 +1,80 @@
 local ts = vim.treesitter
 local parsers = require "nvim-treesitter.parsers"
-local utils = require "ssr.utils"
+local u = require "ssr.utils"
 
 local M = {}
 
 M.wildcard_prefix = "__ssr_var_"
 
----@class Parser
----@field buf buffer
+---@class ParseContext
 ---@field lang string
----@field origin_node table
----@field context table
-local Parser = {}
-Parser.__index = Parser
-M.Parser = Parser
+---@field before string
+---@field after string
+---@field pad_rows integer
+---@field pad_cols integer
+local ParseContext = {}
+ParseContext.__index = ParseContext
+M.ParseContext = ParseContext
 
-function Parser:get_relative_range(text)
-  local lines = vim.split(text, "\n")
-  local start_row = self.origin_node.start_row - self.context.start_row
-  local start_col = self.origin_node.start_col
-  if start_row == 0 then
-    start_col = self.origin_node.start_col - self.context.start_col
-  end
-  local end_row = start_row + #lines - 1
-  local end_col = #lines[#lines]
-  if end_row == start_row then
-    end_col = end_col + start_col
-  end
-  return start_row, start_col, end_row, end_col
-end
-
----@param origin_node TSNode
+-- Create a context in which `origin_node` (and user input) will be parsed correctly.
 ---@param buf buffer
----@return Parser?
-function Parser:new(buf, origin_node)
+---@param origin_node TSNode
+---@return ParseContext?
+function ParseContext.new(buf, origin_node)
   if origin_node:has_error() then
-    return utils.notify "You have syntax errors in selected node"
+    return u.notify "You have syntax errors in selected node"
   end
+  local self = setmetatable({ lang = parsers.get_buf_lang(buf) }, { __index = ParseContext })
+
   local origin_start_row, origin_start_col, origin_start_byte = origin_node:start()
   local _, _, origin_end_byte = origin_node:end_()
-  local o = setmetatable({
-    buf = buf,
-    lang = parsers.get_buf_lang(buf),
-    origin_node = {
-      start_row = origin_start_row,
-      start_col = origin_start_col,
-    },
-    context = {
-      start_row = 0,
-      start_col = 0,
-      before = "",
-      after = "",
-    },
-  }, self)
-  local origin_text = ts.get_node_text(origin_node, buf)
+  local origin_lines = vim.split(ts.get_node_text(origin_node, buf), "\n")
   local origin_sexpr = origin_node:sexpr()
-  local context = origin_node
-  while context do
-    o.context.start_row, o.context.start_col = context:start()
-    local str = ts.get_node_text(context, buf)
-    local root = ts.get_string_parser(str, o.lang):parse()[1]:root()
-    local node = root:named_descendant_for_range(o:get_relative_range(origin_text))
-    if node:sexpr() == origin_sexpr then
-      local start_byte
-      o.context.start_row, o.context.start_col, start_byte = context:start()
-      o.context.before = str:sub(1, origin_start_byte - start_byte)
-      o.context.after = str:sub(origin_end_byte - start_byte + 1)
-      break
+  local context_node = origin_node
+
+  -- Find an ancestor of `origin_node`
+  while context_node do
+    local context_text = ts.get_node_text(context_node, buf)
+    local root = ts.get_string_parser(context_text, self.lang):parse()[1]:root()
+
+    -- Get the range of `origin_text` relative to the string `context_text`.
+    local context_start_row, context_start_col = context_node:start()
+    local start_row = origin_start_row - context_start_row
+    local start_col = origin_start_col
+    if start_row == 0 then
+      start_col = origin_start_col - context_start_col
     end
-    context = context:parent()
+    local end_row = start_row + #origin_lines - 1
+    local end_col = #origin_lines[#origin_lines]
+    if end_row == start_row then
+      end_col = end_col + start_col
+    end
+    local node_in_context = root:named_descendant_for_range(start_row, start_col, end_row, end_col)
+    if node_in_context:type() == origin_node:type() and node_in_context:sexpr() == origin_sexpr then
+      local context_start_byte
+      self.start_row, self.start_col, context_start_byte = context_node:start()
+      self.before = context_text:sub(1, origin_start_byte - context_start_byte)
+      self.after = context_text:sub(origin_end_byte - context_start_byte + 1)
+      self.pad_rows = start_row
+      self.pad_cols = start_col
+      return self
+    end
+    -- Try next parent
+    context_node = context_node:parent()
   end
-  if not o.context.before then
-    return utils.notify "Can't find a proper context to parse pattern"
-  end
-  return o
 end
 
 -- Parse search pattern to syntax tree in proper context.
 ---@param pattern string
----@return TSNode?, string?
-function Parser:parse(pattern)
+---@return TSNode, string
+function ParseContext:parse(pattern)
   -- Replace named wildcard $name to identifier __ssr_var_name to avoid syntax error.
   pattern = pattern:gsub("%$([_%a%d]+)", M.wildcard_prefix .. "%1")
-  local str = self.context.before .. pattern .. self.context.after
-  local root = ts.get_string_parser(str, self.lang):parse()[1]:root()
-  local node = root:named_descendant_for_range(self:get_relative_range(pattern))
-  if not node:has_error() then
-    return node, str
-  end
+  local context_text = self.before .. pattern .. self.after
+  local root = ts.get_string_parser(context_text, self.lang):parse()[1]:root()
+  local lines = vim.split(pattern, "\n")
+  local node = root:named_descendant_for_range(self.pad_rows, self.pad_cols, self.pad_rows + #lines - 1, #lines[#lines])
+  return node, context_text
 end
 
 return M
