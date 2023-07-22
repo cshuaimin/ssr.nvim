@@ -9,7 +9,7 @@ jobs:
 
     strategy:
       matrix:
-        nvim: [v0.8.0, nightly]
+        nvim: [v0.9.1, nightly]
 
     steps:
       - uses: actions/checkout@v3
