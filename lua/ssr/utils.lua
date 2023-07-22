@@ -3,17 +3,30 @@ local parsers = require "nvim-treesitter.parsers"
 
 local M = {}
 
+-- Send a notification titled SSR.
 ---@param msg string
 ---@return nil
 function M.notify(msg)
-  vim.notify(msg, "error", { title = "SSR" })
+  vim.notify(msg, vim.log.levels.ERROR, { title = "SSR" })
 end
 
+-- Get (0,0)-indexed cursor position.
+---@param win window
 function M.get_cursor(win)
   local cursor = api.nvim_win_get_cursor(win)
   return cursor[1] - 1, cursor[2]
 end
 
+-- Set (0,0)-indexed cursor position.
+---@param win window
+---@param row integer
+---@param col integer
+function M.set_cursor(win, row, col)
+  api.nvim_win_set_cursor(win, { row + 1, col })
+end
+
+-- Get selected region, works in many modes.
+---@param win window
 ---@return number, number, number, number
 function M.get_selection(win)
   local mode = api.nvim_get_mode().mode
@@ -40,12 +53,7 @@ function M.get_selection(win)
   end
 end
 
----@param buf buffer
----@return TSNode
-function M.get_root(buf)
-  return parsers.get_parser(buf):parse()[1]:root()
-end
-
+-- Get smallest node for the range.
 ---@param buf buffer
 ---@param start_row number
 ---@param start_col number
@@ -53,7 +61,7 @@ end
 ---@param end_col number
 ---@return TSNode
 function M.node_for_range(buf, start_row, start_col, end_row, end_col)
-  return M.get_root(buf):named_descendant_for_range(start_row, start_col, end_row, end_col)
+  return parsers.get_parser(buf):parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
 end
 
 ---@param buf buffer
@@ -80,13 +88,31 @@ function M.remove_indent(lines, indent)
   end
 end
 
---- Escape special characters in s and quote it in double quotes.
+-- Escape special characters in s and quote it in double quotes.
 ---@param s string
 function M.to_ts_query_str(s)
   s = s:gsub([[\]], [[\\]])
   s = s:gsub([["]], [[\"]])
   s = s:gsub("\n", [[\n]])
   return '"' .. s .. '"'
+end
+
+-- Compute window size to show giving lines.
+function M.get_win_size(lines, config)
+  local function clamp(i, min, max)
+    return math.min(math.max(i, min), max)
+  end
+
+  local width = 0
+  for _, line in ipairs(lines) do
+    if #line > width then
+      width = #line
+    end
+  end
+
+  width = clamp(width, config.min_width, config.max_width)
+  local height = clamp(#lines, config.min_height, config.max_height)
+  return width, height
 end
 
 return M
