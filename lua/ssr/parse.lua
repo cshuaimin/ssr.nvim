@@ -21,9 +21,6 @@ M.ParseContext = ParseContext
 ---@param origin_node TSNode
 ---@return ParseContext?
 function ParseContext.new(buf, origin_node)
-  if origin_node:has_error() then
-    return u.notify "You have syntax errors in selected node"
-  end
   local self = setmetatable({ lang = parsers.get_buf_lang(buf) }, { __index = ParseContext })
 
   local origin_start_row, origin_start_col, origin_start_byte = origin_node:start()
