@@ -61,6 +61,9 @@ function Ui.new()
     return u.notify("Treesitter parser not found, please try to install it with :TSInstall " .. self.lang)
   end
   local origin_node = u.node_for_range(origin_buf, u.get_selection(self.origin_win))
+  if origin_node:has_error() then
+    return u.notify "You have syntax errors in selected node"
+  end
   local parse_context = ParseContext.new(origin_buf, origin_node)
   if not parse_context then
     return u.notify "Can't find a proper context to parse the pattern"
@@ -74,7 +77,6 @@ function Ui.new()
 
   -- Init ui buffer
   self.ui_buf = api.nvim_create_buf(false, true)
-  vim.bo[self.ui_buf].bufhidden = "wipe"
   vim.bo[self.ui_buf].filetype = "ssr"
 
   local placeholder = ts.get_node_text(origin_node, origin_buf)
@@ -113,7 +115,7 @@ function Ui.new()
 
   -- Open float window
   local width, height = u.get_win_size(placeholder, config)
-  local win = api.nvim_open_win(self.ui_buf, true, {
+  local ui_win = api.nvim_open_win(self.ui_buf, true, {
     relative = "win",
     anchor = "NE",
     row = 1,
@@ -123,7 +125,7 @@ function Ui.new()
     width = width,
     height = height,
   })
-  u.set_cursor(win, 2, 0)
+  u.set_cursor(ui_win, 2, 0)
   fn.matchadd("Title", [[$\w\+]])
 
   api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
@@ -132,24 +134,46 @@ function Ui.new()
     callback = function()
       local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
       local width, height = u.get_win_size(lines, config)
-      if api.nvim_win_get_width(win) ~= width then
-        api.nvim_win_set_width(win, width)
+      if api.nvim_win_get_width(ui_win) ~= width then
+        api.nvim_win_set_width(ui_win, width)
       end
-      if api.nvim_win_get_height(win) ~= height then
-        api.nvim_win_set_height(win, height)
+      if api.nvim_win_get_height(ui_win) ~= height then
+        api.nvim_win_set_height(ui_win, height)
       end
       self:search()
     end,
   })
 
-  -- SSR window is bound to the original window (not buffer!).
-  -- Re-search in every buffer shows up in original window.
+  -- SSR window is bound to the original window (not buffer!), which is the same behavior as IDEs and browsers.
   api.nvim_create_autocmd("BufWinEnter", {
     group = self.augroup,
     callback = function(event)
-      -- Not shows in the original window
-      if event.buf ~= api.nvim_win_get_buf(self.origin_win) then
+      if event.buf == self.ui_buf then
         return
+      end
+
+      local win = api.nvim_get_current_win()
+      if win == ui_win then
+        -- Prevent accidentally opening another file in the ssr window.
+        -- Adapted from neo-tree.nvim.
+        vim.schedule(function()
+          api.nvim_win_set_buf(ui_win, self.ui_buf)
+          local name = api.nvim_buf_get_name(event.buf)
+          api.nvim_win_call(self.origin_win, function()
+            pcall(api.nvim_buf_delete, event.buf, {})
+            if name ~= "" then
+              vim.cmd.edit(name)
+            end
+          end)
+          api.nvim_set_current_win(self.origin_win)
+        end)
+        return
+      elseif win ~= self.origin_win then
+        return
+      end
+
+      if parsers.get_buf_lang(event.buf) ~= self.lang then
+        return self:set_status "N/A"
       end
       self:search()
     end,
@@ -159,12 +183,13 @@ function Ui.new()
     group = self.augroup,
     buffer = self.ui_buf,
     callback = function()
+      win_uis[self.origin_win] = nil
+      api.nvim_clear_autocmds { group = self.augroup }
+      api.nvim_buf_delete(self.ui_buf, {})
       for buf in ipairs(self.buf_matches) do
         api.nvim_buf_clear_namespace(buf, self.ns, 0, -1)
         api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
       end
-      api.nvim_clear_autocmds { group = self.augroup }
-      win_uis[self.origin_win] = nil
     end,
   })
 
@@ -263,7 +288,6 @@ function Ui:replace_confirm()
   end
 
   local confirm_buf = api.nvim_create_buf(false, true)
-  vim.bo[confirm_buf].bufhidden = "hide"
   vim.bo[confirm_buf].filetype = "ssr_confirm"
   local choices = {
     "• Yes",
@@ -304,7 +328,7 @@ function Ui:replace_confirm()
   local replaced = 0
   local cursor = 1
   local _, template = self:get_input()
-  self:set_status(string.format("Replacing 0/%d", #matches))
+  self:set_status(string.format("replacing 0/%d", #matches))
 
   while match_idx <= #matches do
     local confirm_win = open_confirm_win(match_idx)
@@ -372,12 +396,12 @@ function Ui:replace_confirm()
       match_idx = #matches + 1
     end
     api.nvim_win_close(confirm_win, false)
-    self:set_status(string.format("Replacing %d/%d", replaced, #matches))
+    self:set_status(string.format("replacing %d/%d", replaced, #matches))
   end
 
   api.nvim_buf_delete(confirm_buf, {})
   api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
-  self:set_status(string.format("Replaced %d/%d", replaced, #matches))
+  self:set_status(string.format("%d/%d replaced", replaced, #matches))
 end
 
 function Ui:get_input()
@@ -389,6 +413,7 @@ function Ui:get_input()
   return pattern, template
 end
 
+---@param status string
 function Ui:set_status(status)
   api.nvim_buf_set_extmark(self.ui_buf, self.ns, 0, 0, {
     id = self.extmarks.status,
