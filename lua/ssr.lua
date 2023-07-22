@@ -27,12 +27,16 @@ local config = {
   },
 }
 
+-- Set config options.
 ---@param cfg Config?
 function M.setup(cfg)
   if cfg then
     config = vim.tbl_deep_extend("force", config, cfg)
   end
 end
+
+---@type table<window, Ui>
+local win_uis = {}
 
 ---@class Ui
 ---@field ns number
@@ -160,9 +164,11 @@ function Ui.new()
         api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
       end
       api.nvim_clear_autocmds { group = self.augroup }
+      win_uis[self.origin_win] = nil
     end,
   })
 
+  win_uis[self.origin_win] = self
   return self
 end
 
@@ -251,13 +257,14 @@ end
 function Ui:replace_confirm()
   self:search()
   local buf = api.nvim_win_get_buf(self.origin_win)
-  vim.bo[buf].bufhidden = "hide"
   local matches = self.buf_matches[buf]
   if #matches == 0 then
     return self:set_status "pattern not found"
   end
 
   local confirm_buf = api.nvim_create_buf(false, true)
+  vim.bo[confirm_buf].bufhidden = "hide"
+  vim.bo[confirm_buf].filetype = "ssr_confirm"
   local choices = {
     "• Yes",
     "• No",
@@ -290,77 +297,87 @@ function Ui:replace_confirm()
       cfg.title = "Replace?"
       cfg.title_pos = "center"
     end
-    confirm_win = api.nvim_open_win(confirm_buf, true, cfg)
+    return api.nvim_open_win(confirm_buf, true, cfg)
   end
 
-  -- prevent accidental attempt to make a selection with <CR>
-  keymap.set("n", "<CR>", "<Nop>", { buffer = confirm_buf })
+  local match_idx = 1
+  local replaced = 0
+  local cursor = 1
+  local _, template = self:get_input()
+  self:set_status(string.format("Replacing 0/%d", #matches))
 
-  local function map(key, func)
-    keymap.set("n", key, function()
-      func()
-      api.nvim_win_close(confirm_win, false)
-      if match_idx <= #self.matches then
-        open_confirm_win()
+  while match_idx <= #matches do
+    local confirm_win = open_confirm_win(match_idx)
+
+    local key
+    while true do
+      -- Draw a fake cursor because cursor is not shown correctly when blocking on `getchar()`.
+      api.nvim_buf_clear_namespace(confirm_buf, self.cur_search_ns, 0, -1)
+      api.nvim_buf_set_extmark(
+        confirm_buf,
+        self.cur_search_ns,
+        cursor - 1,
+        0,
+        { virt_text = { { "•", "Cursor" } }, virt_text_pos = "overlay" }
+      )
+      api.nvim_buf_set_extmark(confirm_buf, self.cur_search_ns, cursor - 1, 0, { line_hl_group = "CursorLine" })
+      vim.cmd.redraw()
+
+      local ok, char = pcall(vim.fn.getcharstr)
+      key = ok and vim.fn.keytrans(char) or ""
+      if key == "j" then
+        if cursor == separator_idx - 1 then -- skip separator
+          cursor = separator_idx + 1
+        elseif cursor == #choices then -- wrap
+          cursor = 1
+        else
+          cursor = cursor + 1
+        end
+      elseif key == "k" then
+        if cursor == separator_idx + 1 then -- skip separator
+          cursor = separator_idx - 1
+        elseif cursor == 1 then -- wrap
+          cursor = #choices
+        else
+          cursor = cursor - 1
+        end
+      elseif vim.tbl_contains({ "<C-E>", "<C-Y>", "<C-U>", "<C-D>", "<C-F>", "<C-B>" }, key) then
+        fn.win_execute(self.origin_win, string.format('execute "normal! \\%s"', key))
       else
-        api.nvim_buf_delete(confirm_buf, {})
-        api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
+        break
       end
-      self:set_status(string.format("%d/%d replaced", replaced, #self.matches))
-    end, { buffer = confirm_buf, nowait = true })
-  end
-
-  map("y", function()
-    replace(self.origin_buf, self.matches[match_idx], template)
-    replaced = replaced + 1
-    match_idx = match_idx + 1
-  end)
-
-  map("n", function()
-    match_idx = match_idx + 1
-  end)
-
-  map("a", function()
-    for i = match_idx, #self.matches do
-      replace(self.origin_buf, self.matches[i], template)
     end
-    replaced = replaced + #self.matches + 1 - match_idx
-    match_idx = #self.matches + 1
-  end)
 
-  map("q", function()
-    match_idx = #self.matches + 1
-  end)
+    if key == "<CR>" then
+      key = ({ "y", "n", "", "a", "q", "l" })[cursor]
+    end
 
-  map("<Esc>", function()
-    match_idx = #self.matches + 1
-  end)
-
-  map("<C-[>", function()
-    match_idx = #self.matches + 1
-  end)
-
-  map("l", function()
-    replace(self.origin_buf, self.matches[match_idx], template)
-    replaced = replaced + 1
-    match_idx = #self.matches + 1
-  end)
-
-  local function origin_win_map(key)
-    vim.keymap.set("n", key, function()
-      fn.win_execute(self.origin_win, string.format('execute "normal! \\%s"', key))
-    end, { buffer = confirm_buf })
+    if key == "y" then
+      replace(buf, matches[match_idx], template)
+      replaced = replaced + 1
+      match_idx = match_idx + 1
+    elseif key == "n" then
+      match_idx = match_idx + 1
+    elseif key == "a" then
+      for i = match_idx, #matches do
+        replace(buf, matches[i], template)
+      end
+      replaced = replaced + #matches + 1 - match_idx
+      match_idx = #matches + 1
+    elseif key == "l" then
+      replace(buf, matches[match_idx], template)
+      replaced = replaced + 1
+      match_idx = #matches + 1
+    elseif key == "q" or key == "<ESC>" or key == "" then
+      match_idx = #matches + 1
+    end
+    api.nvim_win_close(confirm_win, false)
+    self:set_status(string.format("Replacing %d/%d", replaced, #matches))
   end
 
-  origin_win_map "<C-e>"
-  origin_win_map "<C-y>"
-  origin_win_map "<C-u>"
-  origin_win_map "<C-d>"
-  origin_win_map "<C-f>"
-  origin_win_map "<C-b>"
-
-  self:set_status(string.format("0/%d replaced", #self.matches))
-  open_confirm_win()
+  api.nvim_buf_delete(confirm_buf, {})
+  api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
+  self:set_status(string.format("Replaced %d/%d", replaced, #matches))
 end
 
 function Ui:get_input()
@@ -384,8 +401,37 @@ function Ui:set_status(status)
   })
 end
 
+---@param win window?
+---@return Ui?
+function Ui.from_win(win)
+  if win == nil or win == 0 then
+    win = api.nvim_get_current_win()
+  end
+  local ui = win_uis[win]
+  if not ui then
+    return u.notify "No open SSR window"
+  end
+  return ui
+end
+
 function M.open()
   return Ui.new()
+end
+
+-- Replace all matches.
+function M.replace_all()
+  local ui = Ui.from_win()
+  if ui then
+    ui:replace_all()
+  end
+end
+
+-- Confirm each match.
+function M.replace_confirm()
+  local ui = Ui.from_win()
+  if ui then
+    ui:replace_confirm()
+  end
 end
 
 return M

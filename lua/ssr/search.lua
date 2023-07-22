@@ -105,7 +105,7 @@ function M.search(buf, node, source, ns)
   local parse_query = ts.query.parse or ts.parse_query
   local query = parse_query(parsers.get_buf_lang(buf), sexpr)
   local matches = {}
-  local root = u.get_root(buf)
+  local root = parsers.get_parser(buf):parse()[1]:root()
   for _, nodes in query:iter_matches(root, buf, 0, -1) do
     local captures = {}
     for var, idx in pairs(wildcards) do

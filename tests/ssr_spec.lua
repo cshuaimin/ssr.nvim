@@ -1,8 +1,7 @@
-local parsers = require "nvim-treesitter.parsers"
-local utils = require "ssr.utils"
-local Parser = require("ssr.parse").Parser
+local u = require "ssr.utils"
+local ParseContext = require("ssr.parse").ParseContext
 local search = require("ssr.search").search
-local replace = require("ssr.replace").replace
+local replace = require("ssr.search").replace
 
 local tests = {}
 
@@ -183,11 +182,11 @@ describe("", function()
       local buf = vim.api.nvim_create_buf(false, true)
       vim.bo[buf].filetype = ft
       vim.api.nvim_buf_set_lines(buf, 0, -1, true, content)
-      local origin_node = utils.node_for_range(buf, start_row, start_col, end_row, end_col)
+      local origin_node = u.node_for_range(buf, start_row, start_col, end_row, end_col)
 
-      local parser = Parser:new(buf, origin_node)
-      assert(parser)
-      local node, source = parser:parse(pattern)
+      local parse_context = ParseContext.new(buf, origin_node)
+      assert(parse_context)
+      local node, source = parse_context:parse(pattern)
       local matches = search(buf, node, source, ns)
 
       for _, match in ipairs(matches) do
