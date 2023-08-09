@@ -109,9 +109,6 @@ function Ui.new()
   map(config.keymaps.prev_match, function()
     self:goto_match(self:prev_match_idx())
   end)
-  map(config.keymaps.close, function()
-    api.nvim_buf_delete(self.ui_buf, {})
-  end)
 
   -- Open float window
   local width, height = u.get_win_size(placeholder, config)
@@ -127,6 +124,10 @@ function Ui.new()
   })
   u.set_cursor(ui_win, 2, 0)
   fn.matchadd("Title", [[$\w\+]])
+
+  map(config.keymaps.close, function()
+    api.nvim_win_close(ui_win, false)
+  end)
 
   api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = self.augroup,
@@ -186,7 +187,7 @@ function Ui.new()
       win_uis[self.origin_win] = nil
       api.nvim_clear_autocmds { group = self.augroup }
       api.nvim_buf_delete(self.ui_buf, {})
-      for buf in ipairs(self.buf_matches) do
+      for buf in pairs(self.buf_matches) do
         api.nvim_buf_clear_namespace(buf, self.ns, 0, -1)
         api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
       end
