@@ -89,7 +89,7 @@ function Ui:open()
   local function map(key, func)
     keymap.set("n", key, function()
       func(self)
-    end, { buffer = self.ui_buf })
+    end, { buffer = self.ui_buf, nowait = true })
   end
 
   map(config.keymaps.replace_confirm, self.replace_confirm)
