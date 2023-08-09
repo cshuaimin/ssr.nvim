@@ -247,12 +247,12 @@ function Ui:replace_confirm()
 
   local confirm_buf = api.nvim_create_buf(false, true)
   api.nvim_buf_set_lines(confirm_buf, 0, -1, true, {
-    "• Yes",
-    "• No",
+    "[y]es",
+    "[n]o",
     "──────────────",
-    "• All",
-    "• Quit",
-    "• Last replace",
+    "[a]ll",
+    "[q]uit",
+    "[l]ast replace",
   })
 
   local replaced = 0
@@ -278,6 +278,9 @@ function Ui:replace_confirm()
     end
     confirm_win = api.nvim_open_win(confirm_buf, true, cfg)
   end
+
+  -- prevent accidental attempt to make a selection with <CR>
+  keymap.set("n", "<CR>", "<Nop>", { buffer = confirm_buf })
 
   local function map(key, func)
     keymap.set("n", key, function()
