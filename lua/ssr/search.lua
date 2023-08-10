@@ -2,9 +2,10 @@ local api = vim.api
 local ts = vim.treesitter
 local parsers = require "nvim-treesitter.parsers"
 local u = require "ssr.utils"
-local wildcard_prefix = require("ssr.parse").wildcard_prefix
 
 local M = {}
+
+M.wildcard_prefix = "__ssr_var_"
 
 ---@class Match
 ---@field range ExtmarkRange
@@ -41,6 +42,33 @@ function ExtmarkRange:get()
   return extmark[1], extmark[2], extmark[3].end_row, extmark[3].end_col
 end
 
+-- Compare if two captured trees can match.
+-- The check is loose because users want to match different types of node.
+-- e.g. converting `{ foo: foo }` to shorthand `{ foo }`.
+ts.query.add_predicate("ssr-tree-match?", function(match, _pattern, buf, pred)
+  ---@param node1 TSNode
+  ---@param node2 TSNode
+  ---@return boolean
+  local function tree_match(node1, node2)
+    if node1:named() ~= node2:named() then
+      return false
+    end
+    if node1:child_count() == 0 or node2:child_count() == 0 then
+      return ts.get_node_text(node1, buf) == ts.get_node_text(node2, buf)
+    end
+    if node1:child_count() ~= node2:child_count() then
+      return false
+    end
+    for i = 0, node1:child_count() - 1 do
+      if not tree_match(node1:child(i), node2:child(i)) then
+        return false
+      end
+    end
+    return true
+  end
+  return tree_match(match[pred[2]], match[pred[3]])
+end, true)
+
 -- Build a TS sexpr represting the node.
 ---@param node TSNode
 ---@param source string
@@ -54,11 +82,19 @@ local function build_sexpr(node, source)
     local text = ts.get_node_text(node, source)
 
     -- Special identifier __ssr_var_name is a named wildcard.
-    local var = text:match("^" .. wildcard_prefix .. "([_%a%d]+)$")
+    -- Handle this early to make sure wildcard captures largest node.
+    local var = text:match("^" .. M.wildcard_prefix .. "([_%a%d]+)$")
     if var then
-      wildcards[var] = next_idx
-      next_idx = next_idx + 1
-      return "(_) @" .. var
+      if not wildcards[var] then
+        wildcards[var] = next_idx
+        next_idx = next_idx + 1
+        return "(_) @" .. var
+      else
+        -- Same wildcard should match the same subtree.
+        local sexpr = string.format("(_) @_%d (#ssr-tree-match? @_%d @%s)", next_idx, next_idx, var)
+        next_idx = next_idx + 1
+        return sexpr
+      end
     end
 
     -- Leaf nodes (keyword, identifier, literal and symbol) should match text.

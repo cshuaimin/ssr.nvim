@@ -138,10 +138,9 @@ foo($a, $b) ==>> ($a).foo($b)
 String::from((y + 5).foo(z))
 ]]
 
-t [[ go parsed correctly
+t [[ go parse Go := in function
 func main() {
-  <commit, _ := os.LookupEnv("GITHUB_SHA")>
-  print(commit)
+    <commit, _ := os.LookupEnv("GITHUB_SHA")>
 }
 ====
 $a, _ := os.LookupEnv($b)
@@ -149,9 +148,77 @@ $a, _ := os.LookupEnv($b)
 $a := os.Getenv($b)
 ====
 func main() {
-  commit := os.Getenv("GITHUB_SHA")
-  print(commit)
+    commit := os.Getenv("GITHUB_SHA")
 }
+]]
+
+t [[ go match Go if err
+fn main() {
+    <if err != nil {
+        panic(err)
+    }>
+}
+====
+if err != nil { panic(err) } ==>> x
+====
+fn main() {
+    x
+}
+]]
+
+t [[ rust reused wildcard: compound assignments
+<idx = idx + 1>;
+bar = foo + idx;
+*foo.bar() = * foo . bar () + 1;
+(foo + bar) = (foo + bar) + 1;
+(foo + bar) = (foo - bar) + 1;
+====
+$a = $a + $b ==>> $a += $b
+====
+idx += 1;
+bar = foo + idx;
+*foo.bar() += 1;
+(foo + bar) += 1;
+(foo + bar) = (foo - bar) + 1;
+]]
+
+t [[ python reused wildcard: indent
+def f():
+    <if await foo.bar(baz):
+        if await foo.bar(baz):
+            pass>
+====
+if $foo:
+    if $foo:
+        $body
+==>>
+if $foo:
+    $body
+====
+def f():
+    if await foo.bar(baz):
+        pass
+]]
+
+-- two `foo`s have different type: `property_identifier` and `identifier`
+t [[ javascript reused wildcard: match different node types 1
+<{ foo: foo }>
+{ foo: bar }
+====
+{ $a: $a } ==>> { $a }
+====
+{ foo }
+{ foo: bar }
+]]
+
+t [[ lua reused wildcard: match different node types 2
+<local api = vim.api>
+local a = vim.api
+====
+local $a = vim.$a ==>> x
+====
+x
+local a = vim.api
 ]]
 
 describe("", function()

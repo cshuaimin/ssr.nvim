@@ -1,10 +1,8 @@
 local ts = vim.treesitter
 local parsers = require "nvim-treesitter.parsers"
-local u = require "ssr.utils"
+local wildcard_prefix = require("ssr.search").wildcard_prefix
 
 local M = {}
-
-M.wildcard_prefix = "__ssr_var_"
 
 ---@class ParseContext
 ---@field lang string
@@ -66,7 +64,7 @@ end
 ---@return TSNode, string
 function ParseContext:parse(pattern)
   -- Replace named wildcard $name to identifier __ssr_var_name to avoid syntax error.
-  pattern = pattern:gsub("%$([_%a%d]+)", M.wildcard_prefix .. "%1")
+  pattern = pattern:gsub("%$([_%a%d]+)", wildcard_prefix .. "%1")
   local context_text = self.before .. pattern .. self.after
   local root = ts.get_string_parser(context_text, self.lang):parse()[1]:root()
   local lines = vim.split(pattern, "\n")
