@@ -153,9 +153,9 @@ function Ui:open()
       self:search()
     end,
   })
-  api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+  api.nvim_create_autocmd({ "WinClosed" }, {
     buffer = self.ui_buf,
-    callback = function(a)
+    callback = function()
       api.nvim_buf_clear_namespace(self.origin_buf, self.ns, 0, -1)
       api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
       keymap.del("n", "n", { buffer = self.origin_buf })
