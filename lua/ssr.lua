@@ -78,6 +78,16 @@ function Ui:open()
   self.ns = api.nvim_create_namespace ""
   self.cur_match_ns = api.nvim_create_namespace ""
 
+  local augroup_name = "ssr_" .. tonumber(math.random(1000))
+  local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
+  api.nvim_create_autocmd({ "BufLeave" }, {
+    buffer = self.origin_buf,
+    group = augroup,
+    callback = function()
+      vim.lsp.buf.clear_references()
+    end,
+  })
+
   local function set_extmark(row, text)
     return api.nvim_buf_set_extmark(self.ui_buf, self.ns, row, 0, { virt_text = text, virt_text_pos = "overlay" })
   end
@@ -139,8 +149,10 @@ function Ui:open()
   })
   api.nvim_win_set_cursor(win, { 3, 0 })
   fn.matchadd("Title", [[$\w\+]])
+
   api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     buffer = self.ui_buf,
+    group = augroup,
     callback = function()
       local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
       if #lines ~= api.nvim_win_get_height(win) and #lines >= config.min_height and #lines <= config.max_height then
@@ -153,13 +165,24 @@ function Ui:open()
       self:search()
     end,
   })
+
   api.nvim_create_autocmd({ "WinClosed" }, {
     buffer = self.ui_buf,
+    group = augroup,
     callback = function()
       api.nvim_buf_clear_namespace(self.origin_buf, self.ns, 0, -1)
       api.nvim_buf_clear_namespace(self.origin_buf, self.cur_match_ns, 0, -1)
-      keymap.del("n", "n", { buffer = self.origin_buf })
-      keymap.del("n", "N", { buffer = self.origin_buf })
+
+      -- Cleanup autocmds and augroup
+      api.nvim_clear_autocmds { group = augroup }
+      api.nvim_exec2("augroup! " .. augroup_name, {})
+
+      -- Prevents an error if two instances are created on
+      -- a singgle buffer.
+      pcall(function()
+        keymap.del("n", "n", { buffer = self.origin_buf })
+        keymap.del("n", "N", { buffer = self.origin_buf })
+      end)
     end,
   })
 end
