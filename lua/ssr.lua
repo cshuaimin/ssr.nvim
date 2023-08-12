@@ -80,6 +80,14 @@ function Ui:open()
 
   local augroup_name = "ssr_" .. tonumber(math.random(1000))
   local augroup = vim.api.nvim_create_augroup(augroup_name, { clear = true })
+  api.nvim_create_autocmd({ "BufLeave" }, {
+    buffer = self.origin_buf,
+    group = augroup,
+    callback = function()
+      vim.lsp.buf.clear_references()
+    end,
+  })
+
   local function set_extmark(row, text)
     return api.nvim_buf_set_extmark(self.ui_buf, self.ns, row, 0, { virt_text = text, virt_text_pos = "overlay" })
   end
