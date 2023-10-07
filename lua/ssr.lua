@@ -338,6 +338,7 @@ function Ui:replace_confirm()
   while match_idx <= #matches do
     local confirm_win = open_confirm_win(match_idx)
 
+    ---@type string
     local key
     while true do
       -- Draw a fake cursor because cursor is not shown correctly when blocking on `getchar()`.

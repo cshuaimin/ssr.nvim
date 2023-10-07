@@ -73,7 +73,7 @@ function M.get_indent(buf, row)
   return line:match "^%s*"
 end
 
----@param lines table
+---@param lines string[]
 ---@param indent string
 function M.add_indent(lines, indent)
   for i = 2, #lines do
@@ -81,7 +81,7 @@ function M.add_indent(lines, indent)
   end
 end
 
----@param lines table
+---@param lines string[]
 ---@param indent string
 function M.remove_indent(lines, indent)
   indent = "^" .. indent
@@ -100,7 +100,15 @@ function M.to_ts_query_str(s)
 end
 
 -- Compute window size to show giving lines.
+---@param lines string[]
+---@param config Config
+---@return number
+---@return number
 function M.get_win_size(lines, config)
+  ---@param i number
+  ---@param min number
+  ---@param max number
+  ---@return number
   local function clamp(i, min, max)
     return math.min(math.max(i, min), max)
   end
