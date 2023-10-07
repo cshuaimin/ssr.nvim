@@ -1,6 +1,5 @@
 local api = vim.api
 local ts = vim.treesitter
-local parsers = require "nvim-treesitter.parsers"
 local u = require "ssr.utils"
 
 local M = {}
@@ -139,9 +138,17 @@ end
 function M.search(buf, node, source, ns)
   local sexpr, wildcards = build_sexpr(node, source)
   local parse_query = ts.query.parse or ts.parse_query
-  local query = parse_query(parsers.get_buf_lang(buf), sexpr)
+  local lang = ts.language.get_lang(vim.bo[buf].filetype)
+  if not lang then
+    return {}
+  end
+  local query = parse_query(lang, sexpr)
   local matches = {}
-  local root = parsers.get_parser(buf):parse()[1]:root()
+  local has_parser, parser = pcall(ts.get_parser, buf, lang)
+  if not has_parser then
+    return {}
+  end
+  local root = parser:parse(true)[1]:root()
   for _, nodes in query:iter_matches(root, buf, 0, -1) do
     local captures = {}
     for var, idx in pairs(wildcards) do

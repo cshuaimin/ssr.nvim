@@ -1,5 +1,5 @@
 local api = vim.api
-local parsers = require "nvim-treesitter.parsers"
+local ts = vim.treesitter
 
 local M = {}
 
@@ -55,13 +55,15 @@ end
 
 -- Get smallest node for the range.
 ---@param buf buffer
+---@param lang string
 ---@param start_row number
 ---@param start_col number
 ---@param end_row number
 ---@param end_col number
----@return TSNode
-function M.node_for_range(buf, start_row, start_col, end_row, end_col)
-  return parsers.get_parser(buf):parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
+---@return TSNode?
+function M.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
+  local parser = ts.get_parser(buf, lang)
+  return parser:parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
 end
 
 ---@param buf buffer

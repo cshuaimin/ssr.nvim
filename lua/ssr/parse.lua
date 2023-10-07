@@ -1,5 +1,4 @@
 local ts = vim.treesitter
-local parsers = require "nvim-treesitter.parsers"
 local wildcard_prefix = require("ssr.search").wildcard_prefix
 
 local M = {}
@@ -19,7 +18,11 @@ M.ParseContext = ParseContext
 ---@param origin_node TSNode
 ---@return ParseContext?
 function ParseContext.new(buf, origin_node)
-  local self = setmetatable({ lang = parsers.get_buf_lang(buf) }, { __index = ParseContext })
+  local lang = ts.language.get_lang(vim.bo[buf].filetype)
+  if not lang then
+    return
+  end
+  local self = setmetatable({ lang = lang }, { __index = ParseContext })
 
   local origin_start_row, origin_start_col, origin_start_byte = origin_node:start()
   local _, _, origin_end_byte = origin_node:end_()

@@ -1,5 +1,6 @@
 local u = require "ssr.utils"
 local ParseContext = require("ssr.parse").ParseContext
+local ts = vim.treesitter
 local search = require("ssr.search").search
 local replace = require("ssr.search").replace
 
@@ -249,7 +250,9 @@ describe("", function()
       local buf = vim.api.nvim_create_buf(false, true)
       vim.bo[buf].filetype = ft
       vim.api.nvim_buf_set_lines(buf, 0, -1, true, content)
-      local origin_node = u.node_for_range(buf, start_row, start_col, end_row, end_col)
+      local lang = ts.language.get_lang(vim.bo[buf].filetype)
+      assert(lang, "language not found")
+      local origin_node = u.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
 
       local parse_context = ParseContext.new(buf, origin_node)
       assert(parse_context)
