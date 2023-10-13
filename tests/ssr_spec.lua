@@ -223,6 +223,10 @@ local a = vim.api
 ]]
 
 describe("", function()
+  -- Plenary runs nvim with `--noplugin` argument.
+  -- Make sure nvim-treesitter is loaded, which populates vim.treesitter's ft_to_lang table.
+  require "nvim-treesitter"
+
   for _, s in ipairs(tests) do
     local ft, desc, content, pattern, template, expected =
       s:match "^ (%a-) (.-)\n(.-)%s?====%s?(.-)%s?==>>%s?(.-)%s?====%s?(.-)%s?$"
