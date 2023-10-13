@@ -57,7 +57,7 @@ function Ui.new()
   local origin_buf = api.nvim_win_get_buf(self.origin_win)
   local lang = ts.language.get_lang(vim.bo[origin_buf].filetype)
   if not lang then
-    return u.notify("Treesitter parser not found, please try to install it with :TSInstall " .. self.lang)
+    return u.notify("Treesitter language not found")
   end
   self.lang = lang
 

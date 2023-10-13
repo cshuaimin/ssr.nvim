@@ -62,8 +62,10 @@ end
 ---@param end_col number
 ---@return TSNode?
 function M.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
-  local parser = ts.get_parser(buf, lang)
-  return parser:parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
+  local has_parser, parser = pcall(ts.get_parser, buf, lang)
+  if has_parser then
+    return parser:parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
+  end
 end
 
 ---@param buf buffer
