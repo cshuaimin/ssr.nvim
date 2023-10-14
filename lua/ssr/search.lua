@@ -1,6 +1,5 @@
 local api = vim.api
 local ts = vim.treesitter
-local parsers = require "nvim-treesitter.parsers"
 local u = require "ssr.utils"
 
 local M = {}
@@ -46,10 +45,13 @@ end
 -- The check is loose because users want to match different types of node.
 -- e.g. converting `{ foo: foo }` to shorthand `{ foo }`.
 ts.query.add_predicate("ssr-tree-match?", function(match, _pattern, buf, pred)
-  ---@param node1 TSNode
-  ---@param node2 TSNode
+  ---@param node1 TSNode?
+  ---@param node2 TSNode?
   ---@return boolean
   local function tree_match(node1, node2)
+    if not node1 or not node2 then
+      return false
+    end
     if node1:named() ~= node2:named() then
       return false
     end
@@ -74,10 +76,13 @@ end, true)
 ---@param source string
 ---@return string, table<string, number>
 local function build_sexpr(node, source)
+  ---@type table<string, number>
   local wildcards = {}
   local next_idx = 1
 
   -- This function is more strict than `tsnode:sexpr()` by also requiring leaf nodes to match text.
+  ---@param node TSNode
+  ---@return string
   local function build(node)
     local text = ts.get_node_text(node, source)
 
@@ -139,10 +144,19 @@ end
 function M.search(buf, node, source, ns)
   local sexpr, wildcards = build_sexpr(node, source)
   local parse_query = ts.query.parse or ts.parse_query
-  local query = parse_query(parsers.get_buf_lang(buf), sexpr)
+  local lang = ts.language.get_lang(vim.bo[buf].filetype)
+  if not lang then
+    return {}
+  end
+  local query = parse_query(lang, sexpr)
   local matches = {}
-  local root = parsers.get_parser(buf):parse()[1]:root()
+  local has_parser, parser = pcall(ts.get_parser, buf, lang)
+  if not has_parser then
+    return {}
+  end
+  local root = parser:parse(true)[1]:root()
   for _, nodes in query:iter_matches(root, buf, 0, -1) do
+    ---@type table<string, ExtmarkRange>
     local captures = {}
     for var, idx in pairs(wildcards) do
       captures[var] = ExtmarkRange.new(ns, buf, nodes[idx])
@@ -154,6 +168,9 @@ function M.search(buf, node, source, ns)
   -- Sort matches from
   --  buffer top to bottom, to make goto next/prev match intuitive
   --  inner to outer for recursive matches, to make replacing correct
+  ---@param match1 { range: ExtmarkRange, captures: table<string, ExtmarkRange>}
+  ---@param match2 { range: ExtmarkRange, captures: table<string, ExtmarkRange>}
+  ---@return boolean
   table.sort(matches, function(match1, match2)
     local start_row1, start_col1, end_row1, end_col1 = match1.range:get()
     local start_row2, start_col2, end_row2, end_col2 = match2.range:get()

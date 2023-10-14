@@ -1,5 +1,4 @@
 local ts = vim.treesitter
-local parsers = require "nvim-treesitter.parsers"
 local wildcard_prefix = require("ssr.search").wildcard_prefix
 
 local M = {}
@@ -19,12 +18,17 @@ M.ParseContext = ParseContext
 ---@param origin_node TSNode
 ---@return ParseContext?
 function ParseContext.new(buf, origin_node)
-  local self = setmetatable({ lang = parsers.get_buf_lang(buf) }, { __index = ParseContext })
+  local lang = ts.language.get_lang(vim.bo[buf].filetype)
+  if not lang then
+    return
+  end
+  local self = setmetatable({ lang = lang }, { __index = ParseContext })
 
   local origin_start_row, origin_start_col, origin_start_byte = origin_node:start()
   local _, _, origin_end_byte = origin_node:end_()
   local origin_lines = vim.split(ts.get_node_text(origin_node, buf), "\n")
   local origin_sexpr = origin_node:sexpr()
+  ---@type TSNode?
   local context_node = origin_node
 
   -- Find an ancestor of `origin_node`
@@ -45,7 +49,7 @@ function ParseContext.new(buf, origin_node)
       end_col = end_col + start_col
     end
     local node_in_context = root:named_descendant_for_range(start_row, start_col, end_row, end_col)
-    if node_in_context:type() == origin_node:type() and node_in_context:sexpr() == origin_sexpr then
+    if node_in_context and node_in_context:type() == origin_node:type() and node_in_context:sexpr() == origin_sexpr then
       local context_start_byte
       self.start_row, self.start_col, context_start_byte = context_node:start()
       self.before = context_text:sub(1, origin_start_byte - context_start_byte)
@@ -61,7 +65,7 @@ end
 
 -- Parse search pattern to syntax tree in proper context.
 ---@param pattern string
----@return TSNode, string
+---@return TSNode?, string
 function ParseContext:parse(pattern)
   -- Replace named wildcard $name to identifier __ssr_var_name to avoid syntax error.
   pattern = pattern:gsub("%$([_%a%d]+)", wildcard_prefix .. "%1")

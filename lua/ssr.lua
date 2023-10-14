@@ -3,7 +3,6 @@ local ts = vim.treesitter
 local fn = vim.fn
 local keymap = vim.keymap
 local highlight = vim.highlight
-local parsers = require "nvim-treesitter.parsers"
 local ParseContext = require("ssr.parse").ParseContext
 local search = require("ssr.search").search
 local replace = require("ssr.search").replace
@@ -56,13 +55,18 @@ function Ui.new()
 
   self.origin_win = api.nvim_get_current_win()
   local origin_buf = api.nvim_win_get_buf(self.origin_win)
-  self.lang = parsers.get_buf_lang(origin_buf)
-  if not parsers.has_parser(self.lang) then
+  local lang = ts.language.get_lang(vim.bo[origin_buf].filetype)
+  if not lang then
+    return u.notify("Treesitter language not found")
+  end
+  self.lang = lang
+
+  local origin_node = u.node_for_range(origin_buf, self.lang, u.get_selection(self.origin_win))
+  if not origin_node then
     return u.notify("Treesitter parser not found, please try to install it with :TSInstall " .. self.lang)
   end
-  local origin_node = u.node_for_range(origin_buf, u.get_selection(self.origin_win))
   if origin_node:has_error() then
-    return u.notify "You have syntax errors in selected node"
+    return u.notify "You have syntax errors in the selected node"
   end
   local parse_context = ParseContext.new(origin_buf, origin_node)
   if not parse_context then
@@ -173,7 +177,7 @@ function Ui.new()
         return
       end
 
-      if parsers.get_buf_lang(event.buf) ~= self.lang then
+      if ts.language.get_lang(vim.bo[event.buf].filetype) ~= self.lang then
         return self:set_status "N/A"
       end
       self:search()
@@ -334,6 +338,7 @@ function Ui:replace_confirm()
   while match_idx <= #matches do
     local confirm_win = open_confirm_win(match_idx)
 
+    ---@type string
     local key
     while true do
       -- Draw a fake cursor because cursor is not shown correctly when blocking on `getchar()`.

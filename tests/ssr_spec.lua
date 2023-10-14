@@ -1,5 +1,6 @@
 local u = require "ssr.utils"
 local ParseContext = require("ssr.parse").ParseContext
+local ts = vim.treesitter
 local search = require("ssr.search").search
 local replace = require("ssr.search").replace
 
@@ -222,6 +223,10 @@ local a = vim.api
 ]]
 
 describe("", function()
+  -- Plenary runs nvim with `--noplugin` argument.
+  -- Make sure nvim-treesitter is loaded, which populates vim.treesitter's ft_to_lang table.
+  require "nvim-treesitter"
+
   for _, s in ipairs(tests) do
     local ft, desc, content, pattern, template, expected =
       s:match "^ (%a-) (.-)\n(.-)%s?====%s?(.-)%s?==>>%s?(.-)%s?====%s?(.-)%s?$"
@@ -249,7 +254,9 @@ describe("", function()
       local buf = vim.api.nvim_create_buf(false, true)
       vim.bo[buf].filetype = ft
       vim.api.nvim_buf_set_lines(buf, 0, -1, true, content)
-      local origin_node = u.node_for_range(buf, start_row, start_col, end_row, end_col)
+      local lang = ts.language.get_lang(vim.bo[buf].filetype)
+      assert(lang, "language not found")
+      local origin_node = u.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
 
       local parse_context = ParseContext.new(buf, origin_node)
       assert(parse_context)

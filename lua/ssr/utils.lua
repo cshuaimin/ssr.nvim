@@ -1,5 +1,5 @@
 local api = vim.api
-local parsers = require "nvim-treesitter.parsers"
+local ts = vim.treesitter
 
 local M = {}
 
@@ -55,13 +55,17 @@ end
 
 -- Get smallest node for the range.
 ---@param buf buffer
+---@param lang string
 ---@param start_row number
 ---@param start_col number
 ---@param end_row number
 ---@param end_col number
----@return TSNode
-function M.node_for_range(buf, start_row, start_col, end_row, end_col)
-  return parsers.get_parser(buf):parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
+---@return TSNode?
+function M.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
+  local has_parser, parser = pcall(ts.get_parser, buf, lang)
+  if has_parser then
+    return parser:parse()[1]:root():named_descendant_for_range(start_row, start_col, end_row, end_col)
+  end
 end
 
 ---@param buf buffer
@@ -71,7 +75,7 @@ function M.get_indent(buf, row)
   return line:match "^%s*"
 end
 
----@param lines table
+---@param lines string[]
 ---@param indent string
 function M.add_indent(lines, indent)
   for i = 2, #lines do
@@ -79,7 +83,7 @@ function M.add_indent(lines, indent)
   end
 end
 
----@param lines table
+---@param lines string[]
 ---@param indent string
 function M.remove_indent(lines, indent)
   indent = "^" .. indent
@@ -98,7 +102,15 @@ function M.to_ts_query_str(s)
 end
 
 -- Compute window size to show giving lines.
+---@param lines string[]
+---@param config Config
+---@return number
+---@return number
 function M.get_win_size(lines, config)
+  ---@param i number
+  ---@param min number
+  ---@param max number
+  ---@return number
   local function clamp(i, min, max)
     return math.min(math.max(i, min), max)
   end
