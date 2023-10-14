@@ -1,57 +1,15 @@
-local api = vim.api
 local ts = vim.treesitter
+local Range = require "ssr.range"
 local u = require "ssr.utils"
 
-local M = {}
-
-M.wildcard_prefix = "__ssr_var_"
-
----@class Match
----@field range ExtmarkRange
----@field captures ExtmarkRange[]
-
----@class ExtmarkRange
----@field ns number
----@field buf buffer
----@field extmark number
-local ExtmarkRange = {}
-M.ExtmarkRange = ExtmarkRange
-
----@param ns number
----@param buf buffer
----@param node TSNode
----@return ExtmarkRange
-function ExtmarkRange.new(ns, buf, node)
-  local start_row, start_col, end_row, end_col = node:range()
-  return setmetatable({
-    ns = ns,
-    buf = buf,
-    extmark = api.nvim_buf_set_extmark(buf, ns, start_row, start_col, {
-      end_row = end_row,
-      end_col = end_col,
-      right_gravity = false,
-      end_right_gravity = true,
-    }),
-  }, { __index = ExtmarkRange })
-end
-
----@return number, number, number, number
-function ExtmarkRange:get()
-  local extmark = api.nvim_buf_get_extmark_by_id(self.buf, self.ns, self.extmark, { details = true })
-  return extmark[1], extmark[2], extmark[3].end_row, extmark[3].end_col
-end
-
 -- Compare if two captured trees can match.
--- The check is loose because users want to match different types of node.
+-- The check is loose because we want to match different types of node.
 -- e.g. converting `{ foo: foo }` to shorthand `{ foo }`.
 ts.query.add_predicate("ssr-tree-match?", function(match, _pattern, buf, pred)
-  ---@param node1 TSNode?
-  ---@param node2 TSNode?
+  ---@param node1 TSNode
+  ---@param node2 TSNode
   ---@return boolean
   local function tree_match(node1, node2)
-    if not node1 or not node2 then
-      return false
-    end
     if node1:named() ~= node2:named() then
       return false
     end
@@ -62,33 +20,38 @@ ts.query.add_predicate("ssr-tree-match?", function(match, _pattern, buf, pred)
       return false
     end
     for i = 0, node1:child_count() - 1 do
-      if not tree_match(node1:child(i), node2:child(i)) then
+      if
+        not tree_match(node1:child(i) --[[@as TSNode]], node2:child(i) --[[@as TSNode]])
+      then
         return false
       end
     end
     return true
   end
   return tree_match(match[pred[2]], match[pred[3]])
-end, true)
+end, { force = true })
 
 -- Build a TS sexpr represting the node.
+-- This function is more strict than `TSNode:sexpr()` by also requiring leaf nodes to match text.
 ---@param node TSNode
 ---@param source string
----@return string, table<string, number>
+---@return string sexpr
+---@return table<string, number> wildcards
+---@return string rough_regex
 local function build_sexpr(node, source)
   ---@type table<string, number>
   local wildcards = {}
+  local rough_regex = ""
   local next_idx = 1
 
-  -- This function is more strict than `tsnode:sexpr()` by also requiring leaf nodes to match text.
   ---@param node TSNode
   ---@return string
   local function build(node)
     local text = ts.get_node_text(node, source)
 
     -- Special identifier __ssr_var_name is a named wildcard.
-    -- Handle this early to make sure wildcard captures largest node.
-    local var = text:match("^" .. M.wildcard_prefix .. "([_%a%d]+)$")
+    -- Handle this early to make sure wildcard captures the largest node.
+    local var = text:match("^" .. u.wildcard_prefix .. "([_%a%d]+)$")
     if var then
       if not wildcards[var] then
         wildcards[var] = next_idx
@@ -104,6 +67,9 @@ local function build_sexpr(node, source)
 
     -- Leaf nodes (keyword, identifier, literal and symbol) should match text.
     if node:named_child_count() == 0 then
+      if #text > #rough_regex then -- TODO build an actual regex
+        rough_regex = text
+      end
       local sexpr = string.format("(%s) @_%d (#eq? @_%d %s)", node:type(), next_idx, next_idx, u.to_ts_query_str(text))
       next_idx = next_idx + 1
       return sexpr
@@ -134,76 +100,72 @@ local function build_sexpr(node, source)
   end
 
   local sexpr = string.format("(%s) @all", build(node))
-  return sexpr, wildcards
+  rough_regex = u.regex_escape(rough_regex)
+  return sexpr, wildcards, rough_regex
 end
 
----@param buf buffer
----@param node TSNode
----@param source string
----@return Match[]
-function M.search(buf, node, source, ns)
-  local sexpr, wildcards = build_sexpr(node, source)
+---@class Match
+---@field range Range
+---@field captures table<string, Range>
+
+---@class Searcher
+---@field lang string
+---@field query vim.treesitter.Query
+---@field wildcards table<string, number>
+---@field rough_regex string
+local Searcher = {}
+
+---@param lang string
+---@param pattern string
+---@param parse_context ParseContext
+---@return Searcher?
+function Searcher.new(lang, pattern, parse_context)
+  local node, source = parse_context:parse(pattern)
+  if node:has_error() then
+    return
+  end
+  local sexpr, wildcards, rough_regex = build_sexpr(node, source)
   local parse_query = ts.query.parse or ts.parse_query
-  local lang = ts.language.get_lang(vim.bo[buf].filetype)
-  if not lang then
-    return {}
-  end
   local query = parse_query(lang, sexpr)
+  return setmetatable({
+    lang = lang,
+    query = query,
+    wildcards = wildcards,
+    rough_regex = rough_regex,
+  }, { __index = Searcher })
+end
+
+---@param file File
+---@return Match[]
+function Searcher:search(file)
   local matches = {}
-  local has_parser, parser = pcall(ts.get_parser, buf, lang)
-  if not has_parser then
-    return {}
-  end
-  local root = parser:parse(true)[1]:root()
-  for _, nodes in query:iter_matches(root, buf, 0, -1) do
-    ---@type table<string, ExtmarkRange>
-    local captures = {}
-    for var, idx in pairs(wildcards) do
-      captures[var] = ExtmarkRange.new(ns, buf, nodes[idx])
+  file.tree:for_each_tree(function(tree, lang_tree) -- must called :parse(true)
+    if lang_tree:lang() ~= self.lang then
+      return
     end
-    local match = { range = ExtmarkRange.new(ns, buf, nodes[#nodes]), captures = captures }
-    table.insert(matches, match)
-  end
+    for _, nodes in self.query:iter_matches(tree:root(), file.source, 0, -1) do
+      local range = Range.from_node(nodes[#nodes])
+      local captures = {}
+      for var, idx in pairs(self.wildcards) do
+        captures[var] = Range.from_node(nodes[idx])
+      end
+      table.insert(matches, { range = range, captures = captures })
+    end
+  end)
 
   -- Sort matches from
   --  buffer top to bottom, to make goto next/prev match intuitive
   --  inner to outer for recursive matches, to make replacing correct
-  ---@param match1 { range: ExtmarkRange, captures: table<string, ExtmarkRange>}
-  ---@param match2 { range: ExtmarkRange, captures: table<string, ExtmarkRange>}
+  ---@param match1 Match
+  ---@param match2 Match
   ---@return boolean
   table.sort(matches, function(match1, match2)
-    local start_row1, start_col1, end_row1, end_col1 = match1.range:get()
-    local start_row2, start_col2, end_row2, end_col2 = match2.range:get()
-    if end_row1 < start_row2 or (end_row1 == start_row2 and end_col1 <= start_col2) then
+    if match1.range:before(match2.range) then
       return true
     end
-    return (start_row1 > start_row2 or (start_row1 == start_row2 and start_col1 > start_col2))
-      and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
+    return match1.range:inside(match2.range)
   end)
-
   return matches
 end
 
---- Render template and replace one match.
----@param buf buffer
----@param match Match
----@param template string
-function M.replace(buf, match, template)
-  -- Render templates with captured nodes.
-  local replace = template:gsub("()%$([_%a%d]+)", function(pos, var)
-    local start_row, start_col, end_row, end_col = match.captures[var]:get()
-    local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
-    u.remove_indent(lines, u.get_indent(buf, start_row))
-    local var_lines = vim.split(template:sub(1, pos), "\n")
-    local var_line = var_lines[#var_lines]
-    local template_indent = var_line:match "^%s*"
-    u.add_indent(lines, template_indent)
-    return table.concat(lines, "\n")
-  end)
-  replace = vim.split(replace, "\n")
-  local start_row, start_col, end_row, end_col = match.range:get()
-  u.add_indent(replace, u.get_indent(buf, start_row))
-  api.nvim_buf_set_text(buf, start_row, start_col, end_row, end_col, replace)
-end
-
-return M
+return Searcher

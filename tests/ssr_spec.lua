@@ -1,8 +1,7 @@
-local u = require "ssr.utils"
-local ParseContext = require("ssr.parse").ParseContext
 local ts = vim.treesitter
-local search = require("ssr.search").search
-local replace = require("ssr.search").replace
+local s = require "ssr.search"
+local ParseContext, Ssr = s.ParseContext, s.Ssr
+local u = require "ssr.utils"
 
 local tests = {}
 
@@ -257,14 +256,15 @@ describe("", function()
       local lang = ts.language.get_lang(vim.bo[buf].filetype)
       assert(lang, "language not found")
       local origin_node = u.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
-
-      local parse_context = ParseContext.new(buf, origin_node)
+      assert(origin_node, 'treesitter parser not installed')
+      local parse_context = ParseContext.new(buf, lang, origin_node)
       assert(parse_context)
-      local node, source = parse_context:parse(pattern)
-      local matches = search(buf, node, source, ns)
+      local rule = Ssr.new(lang, pattern, template, parse_context)
+      assert(rule)
+      local matches = rule:search(buf)
 
       for _, match in ipairs(matches) do
-        replace(buf, match, template)
+        rule:replace(buf, match)
       end
 
       local actual = vim.api.nvim_buf_get_lines(buf, 0, -1, true)

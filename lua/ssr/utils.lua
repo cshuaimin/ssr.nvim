@@ -1,7 +1,13 @@
 local api = vim.api
 local ts = vim.treesitter
+local config = require "ssr.config"
 
 local M = {}
+
+M.wildcard_prefix = "__ssr_var_"
+M.namespace = api.nvim_create_namespace "ssr_ns"
+M.cur_search_ns = api.nvim_create_namespace "ssr_cur_search_ns"
+M.augroup = api.nvim_create_augroup("ssr_augroup", {})
 
 -- Send a notification titled SSR.
 ---@param msg string
@@ -103,10 +109,9 @@ end
 
 -- Compute window size to show giving lines.
 ---@param lines string[]
----@param config Config
 ---@return number
 ---@return number
-function M.get_win_size(lines, config)
+function M.get_win_size(lines)
   ---@param i number
   ---@param min number
   ---@param max number
@@ -122,9 +127,74 @@ function M.get_win_size(lines, config)
     end
   end
 
-  width = clamp(width, config.min_width, config.max_width)
-  local height = clamp(#lines, config.min_height, config.max_height)
+  width = clamp(width, config.opts.min_width, config.opts.max_width)
+  local height = clamp(#lines, config.opts.min_height, config.opts.max_height)
   return width, height
+end
+
+-- https://github.com/rust-lang/regex/blob/17284451f10aa06c6c42e622e3529b98513901a8/regex-syntax/src/lib.rs#L272
+local regex_meta_chars = {
+  ["\\"] = true,
+  ["."] = true,
+  ["+"] = true,
+  ["*"] = true,
+  ["?"] = true,
+  ["("] = true,
+  [")"] = true,
+  ["|"] = true,
+  ["["] = true,
+  ["]"] = true,
+  ["{"] = true,
+  ["}"] = true,
+  ["^"] = true,
+  ["$"] = true,
+  ["#"] = true,
+  ["&"] = true,
+  ["-"] = true,
+  ["~"] = true,
+}
+
+---@param s string
+---@return string
+function M.regex_escape(s)
+  local escaped = s:gsub(".", function(ch)
+    return regex_meta_chars[ch] and "\\" .. ch or ch
+  end)
+  return escaped
+end
+
+---@generic T
+---@param list T[]
+---@param f fun(T): -1 | 0 | 1
+---@return number?
+function M.binary_search_by(list, f)
+  local left = 1
+  local right = #list + 1
+  while left < right do
+    local mid = math.floor((left + right) / 2)
+    local cmp = f(list[mid])
+    if cmp < 0 then
+      left = mid + 1
+    elseif cmp > 0 then
+      right = mid
+    else
+      return mid
+    end
+  end
+end
+
+---@generic T
+---@param list table<T>
+---@param start number 0-based
+---@param end_ number exclusive
+---@param replacement table<T>
+function M.list_replace(list, start, end_, replacement)
+  for _ = start + 1, end_ do
+    table.remove(list, start + 1)
+  end
+  for i = start + 1, start + #replacement do
+    table.insert(list, i, replacement[i - start])
+  end
 end
 
 return M

@@ -1,8 +1,7 @@
 local ts = vim.treesitter
-local wildcard_prefix = require("ssr.search").wildcard_prefix
+local u = require "ssr.utils"
 
-local M = {}
-
+-- The context in which user input (pattern or template) will be parsed correctly.
 ---@class ParseContext
 ---@field lang string
 ---@field before string
@@ -10,18 +9,12 @@ local M = {}
 ---@field pad_rows integer
 ---@field pad_cols integer
 local ParseContext = {}
-ParseContext.__index = ParseContext
-M.ParseContext = ParseContext
 
--- Create a context in which `origin_node` (and user input) will be parsed correctly.
 ---@param buf buffer
+---@param lang string
 ---@param origin_node TSNode
 ---@return ParseContext?
-function ParseContext.new(buf, origin_node)
-  local lang = ts.language.get_lang(vim.bo[buf].filetype)
-  if not lang then
-    return
-  end
+function ParseContext.new(buf, lang, origin_node)
   local self = setmetatable({ lang = lang }, { __index = ParseContext })
 
   local origin_start_row, origin_start_col, origin_start_byte = origin_node:start()
@@ -48,8 +41,8 @@ function ParseContext.new(buf, origin_node)
     if end_row == start_row then
       end_col = end_col + start_col
     end
-    local node_in_context = root:named_descendant_for_range(start_row, start_col, end_row, end_col)
-    if node_in_context and node_in_context:type() == origin_node:type() and node_in_context:sexpr() == origin_sexpr then
+    local node_in_context = root:named_descendant_for_range(start_row, start_col, end_row, end_col) --[[@as TSNode]]
+    if node_in_context:type() == origin_node:type() and node_in_context:sexpr() == origin_sexpr then
       local context_start_byte
       self.start_row, self.start_col, context_start_byte = context_node:start()
       self.before = context_text:sub(1, origin_start_byte - context_start_byte)
@@ -63,17 +56,17 @@ function ParseContext.new(buf, origin_node)
   end
 end
 
--- Parse search pattern to syntax tree in proper context.
----@param pattern string
----@return TSNode?, string
-function ParseContext:parse(pattern)
+-- Parse code to TS node.
+---@param code string
+---@return TSNode, string
+function ParseContext:parse(code)
   -- Replace named wildcard $name to identifier __ssr_var_name to avoid syntax error.
-  pattern = pattern:gsub("%$([_%a%d]+)", wildcard_prefix .. "%1")
-  local context_text = self.before .. pattern .. self.after
-  local root = ts.get_string_parser(context_text, self.lang):parse()[1]:root()
-  local lines = vim.split(pattern, "\n")
-  local node = root:named_descendant_for_range(self.pad_rows, self.pad_cols, self.pad_rows + #lines - 1, #lines[#lines])
-  return node, context_text
+  code = code:gsub("%$([_%a%d]+)", u.wildcard_prefix .. "%1")
+  local source = self.before .. code .. self.after
+  local root = ts.get_string_parser(source, self.lang):parse()[1]:root()
+  local lines = vim.split(code, "\n")
+  local node = root:named_descendant_for_range(self.pad_rows, self.pad_cols, self.pad_rows + #lines - 1, #lines[#lines]) --[[@as TSNode]]
+  return node, source
 end
 
-return M
+return ParseContext
