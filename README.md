@@ -45,8 +45,8 @@ First put your cursor on the structure you want to search and replace (if you
 are not sure, select a region instead), then open SSR by pressing `<leader>sr`.
 
 In the SSR float window you can see the placeholder search code, you can
-replace part of it with wildcards. A wildcard is an identifier starts with `$`,
-like `$name`. A `$name` wildcard in the search pattern will match any AST node
+replace part of it with captures. A capture is an identifier starts with `$`,
+like `$name`. A `$name` capture in the search pattern will match any AST node
 and `$name` will reference it in the replacement.
 
 Press `<leader><cr>` to replace all matches in current buffer, or `<cr>` to

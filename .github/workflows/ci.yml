@@ -9,34 +9,41 @@ jobs:
 
     strategy:
       matrix:
-        nvim: [v0.9.1, nightly]
+        nvim: [nightly]
+
+    env:
+      RIPGREP_VERSION: "14.1.0"
+      VIM: ~/.local/share/nvim/share/nvim/runtime
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set Envs
+      - name: Add PATH
         run: |
-          echo "VIM=~/.local/share/nvim/share/nvim/runtime" >> $GITHUB_ENV
-          echo "PATH=~/.local/share/nvim/bin:$PATH" >> $GITHUB_ENV
+          echo "$HOME/.local/share/nvim/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/share/ripgrep" >> $GITHUB_PATH
 
       - name: Cache Dependencies
         id: cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.local/share/nvim
-          key: ${{ runner.os }}-nvim-${{ matrix.nvim }}
+          key: ${{ runner.os }}-nvim-${{ matrix.nvim }}-rg-${{ env.RIPGREP_VERSION }}
+          path: |
+            ~/.local/share/nvim
+            ~/.local/share/ripgrep
 
       - name: Install Dependencies
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/.local/share/nvim/
+          mkdir -p ~/.local/share/{nvim,ripgrep}
+          curl -sL "https://github.com/BurntSushi/ripgrep/releases/download/$RIPGREP_VERSION/ripgrep-$RIPGREP_VERSION-x86_64-unknown-linux-musl.tar.gz" | tar xzf - --strip-components=1 -C ~/.local/share/ripgrep
           curl -sL "https://github.com/neovim/neovim/releases/download/${{ matrix.nvim }}/nvim-linux64.tar.gz" | tar xzf - --strip-components=1 -C ~/.local/share/nvim/
           git clone --depth 1 https://github.com/nvim-treesitter/nvim-treesitter.git ~/.local/share/nvim/site/pack/vendor/start/nvim-treesitter
           git clone --depth 1 https://github.com/nvim-lua/plenary.nvim ~/.local/share/nvim/site/pack/vendor/start/plenary.nvim
-          ln -s $(pwd) ~/.local/share/nvim/site/pack/vendor/start
-          nvim --headless -c 'TSInstallSync python javascript lua rust go' -c 'q'
+          ln -s $PWD ~/.local/share/nvim/site/pack/vendor/start
+          nvim --headless '+TSInstallSync python javascript html lua rust go' +q
           
       - name: Run tests
         run: |
-          nvim --version
-          nvim --headless -c 'PlenaryBustedDirectory tests/'
+          nvim --version | head -1 && rg --version | head -1
+          nvim --headless '+PlenaryBustedDirectory tests/'
