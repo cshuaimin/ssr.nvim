@@ -17,6 +17,7 @@ local config = {
   min_height = 5,
   max_width = 120,
   max_height = 25,
+  adjust_window = true,
   keymaps = {
     close = "q",
     next_match = "n",
@@ -137,13 +138,15 @@ function Ui.new()
     group = self.augroup,
     buffer = self.ui_buf,
     callback = function()
-      local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
-      local width, height = u.get_win_size(lines, config)
-      if api.nvim_win_get_width(ui_win) ~= width then
-        api.nvim_win_set_width(ui_win, width)
-      end
-      if api.nvim_win_get_height(ui_win) ~= height then
-        api.nvim_win_set_height(ui_win, height)
+      if config.adjust_window then
+        local lines = api.nvim_buf_get_lines(self.ui_buf, 0, -1, true)
+        local width, height = u.get_win_size(lines, config)
+        if api.nvim_win_get_width(ui_win) ~= width then
+          api.nvim_win_set_width(ui_win, width)
+        end
+        if api.nvim_win_get_height(ui_win) ~= height then
+          api.nvim_win_set_height(ui_win, height)
+        end
       end
       self:search()
     end,
