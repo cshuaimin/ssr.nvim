@@ -10,6 +10,18 @@ local u = require "ssr.utils"
 ---@field pad_cols integer
 local ParseContext = {}
 
+---@param lang string
+---@return ParseContext
+function ParseContext.empty(lang)
+  return setmetatable({
+    lang = lang,
+    before = "",
+    after = "",
+    pad_rows = 0,
+    pad_cols = 0,
+  }, { __index = ParseContext })
+end
+
 ---@param buf buffer
 ---@param lang string
 ---@param origin_node TSNode

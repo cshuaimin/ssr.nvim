@@ -1,98 +1,99 @@
-local ts = vim.treesitter
-local s = require "ssr.search"
-local ParseContext, Ssr = s.ParseContext, s.Ssr
-local u = require "ssr.utils"
+local uv = vim.uv or vim.loop
+local ParseContext = require "ssr.parse_context"
+local Searcher = require "ssr.search"
+local Replacer = require "ssr.replace"
+local File = require "ssr.file"
 
+---@type string[]
 local tests = {}
 
+---@param s string
 local function t(s)
   table.insert(tests, s)
 end
 
-t [[ python operators
-<a + b>
-a - b
-====
+t [[ operators
 a + b ==>> (+ a b)
+==== t.py
+a + b
+a - b
 ====
 (+ a b)
 a - b
 ]]
 
-t [[ python complex string
-<"""
+t [[ complex string
+"""
 line 1
 \r\n\a\?\\
 'a'"'"'b'
-""">
-====
+""" ==>> x
+==== t.py
 """
 line 1
 \r\n\a\?\\
 'a'"'"'b'
 """
-==>>
-x
 ====
 x
 ]]
 
-t [[ javascript keywords
-<let a = 1>
-const a = 1
-====
+t [[ keywords
 let a = 1 ==>> x
+==== t.js
+let a = 1
+const a = 1
 ====
 x
 const a = 1
 ]]
 
-t [[ lua func args
+t [[ func args
+f(1, 3) ==>> x
+==== t.lua
 <f(1, 2, 3)>
 f(1, 3)
-====
-f(1, 3) ==>> x
 ====
 f(1, 2, 3)
 x
 ]]
 
-t [[ lua recursive 1
-<f(f(f(0)))>
-====
+t [[ recursive 1
 f($a) ==>> $a.f()
+==== t.lua
+f(f(f(0)))
 ====
 0.f().f().f()
 ]]
 
-t [[ rust recursive 2
-f(f(<f(0, 1)>, 2), 3)
-====
+t [[ recursive 2
 f($a, $b) ==>> $a.f($b)
+==== t.rs
+f(f(f(0, 1), 2), 3)
 ====
 0.f(1).f(2).f(3)
 ]]
 
-t [[ rust recursive 3
-f(3, f(2, <f(1, 0)>))
-====
+t [[ recursive 3
 f($a, $b) ==>> $a.f($b)
+==== t.rs
+f(3, f(2, f(1, 0)))
 ====
 3.f(2.f(1.f(0)))
 ]]
 
-t [[ python indent 1
-def f():
-    <if foo:
-        if bar:
-            pass>
-====
+t [[ indent 1
 if $a:
     $b
 ==>>
 if $a:
     if True:
         $b
+==== t.py
+def f():
+    if foo:
+        if bar:
+            pass
 ====
 def f():
     if foo:
@@ -102,18 +103,18 @@ def f():
                     pass
 ]]
 
-t [[ python indent 2
-def f():
-    if len(a) != 0:
-        do_a(a)
-        <if len(b) != 0:
-            do_b(b)>
-====
+t [[ indent 2
 if len($a) != 0:
     $b
 ==>>
 if $a:
     $b
+==== t.py
+def f():
+    if len(a) != 0:
+        do_a(a)
+        <if len(b) != 0:
+            do_b(b)>
 ====
 def f():
     if a:
@@ -122,58 +123,44 @@ def f():
             do_b(b)
 ]]
 
-t [[ rust question mark
-let foo = <bar().await?>;
-====
+t [[ question mark
 $a? ==>> try!($a)
+==== t.rs
+let foo = bar().await?;
 ====
 let foo = try!(bar().await);
 ]]
 
-t [[ rust rust-analyzer ssr example
-String::from(<foo(y + 5, z)>)
-====
+t [[ rust-analyzer ssr example
 foo($a, $b) ==>> ($a).foo($b)
+==== t.rs
+String::from(foo(y + 5, z))
 ====
 String::from((y + 5).foo(z))
 ]]
 
-t [[ go parse Go := in function
-func main() {
-    <commit, _ := os.LookupEnv("GITHUB_SHA")>
-}
-====
-$a, _ := os.LookupEnv($b)
-==>>
-$a := os.Getenv($b)
-====
-func main() {
-    commit := os.Getenv("GITHUB_SHA")
-}
-]]
-
-t [[ go match Go if err
-fn main() {
-    <if err != nil {
-        panic(err)
-    }>
-}
-====
+t [[ match Go if err
 if err != nil { panic(err) } ==>> x
+==== t.go
+fn main() {
+    if err != nil {
+        panic(err)
+    }
+}
 ====
 fn main() {
     x
 }
 ]]
 
-t [[ rust reused wildcard: compound assignments
-<idx = idx + 1>;
+t [[ reused wildcard: compound assignments
+$a = $a + $b ==>> $a += $b
+==== t.rs
+idx = idx + 1;
 bar = foo + idx;
 *foo.bar() = * foo . bar () + 1;
 (foo + bar) = (foo + bar) + 1;
 (foo + bar) = (foo - bar) + 1;
-====
-$a = $a + $b ==>> $a += $b
 ====
 idx += 1;
 bar = foo + idx;
@@ -182,18 +169,18 @@ bar = foo + idx;
 (foo + bar) = (foo - bar) + 1;
 ]]
 
-t [[ python reused wildcard: indent
-def f():
-    <if await foo.bar(baz):
-        if await foo.bar(baz):
-            pass>
-====
+t [[ reused wildcard: indent
 if $foo:
     if $foo:
         $body
 ==>>
 if $foo:
     $body
+==== t.py
+def f():
+    <if await foo.bar(baz):
+        if await foo.bar(baz):
+            pass>
 ====
 def f():
     if await foo.bar(baz):
@@ -201,24 +188,48 @@ def f():
 ]]
 
 -- two `foo`s have different type: `property_identifier` and `identifier`
-t [[ javascript reused wildcard: match different node types 1
-<{ foo: foo }>
-{ foo: bar }
-====
+t [[ reused wildcard: match different node types 1
 { $a: $a } ==>> { $a }
+==== t.js
+{ foo: foo }
+{ foo: bar }
 ====
 { foo }
 { foo: bar }
 ]]
 
-t [[ lua reused wildcard: match different node types 2
-<local api = vim.api>
-local a = vim.api
-====
+t [[ reused wildcard: match different node types 2
 local $a = vim.$a ==>> x
+==== t.lua
+local api = vim.api
+local a = vim.api
 ====
 x
 local a = vim.api
+]]
+
+t [[ multiple files
+local $a = vim.$a ==>> local __$a__ = vim.$a
+
+**** t.lua
+local api = vim.api
+local fn = vim.fn
+****
+local __api__ = vim.api
+local __fn__ = vim.fn
+
+**** README.md
+# Example
+```lua
+local F = vim.F
+local uv = vim.uv
+```
+****
+# Example
+```lua
+local __F__ = vim.F
+local __uv__ = vim.uv
+```
 ]]
 
 describe("", function()
@@ -227,49 +238,47 @@ describe("", function()
   require "nvim-treesitter"
 
   for _, s in ipairs(tests) do
-    local ft, desc, content, pattern, template, expected =
-      s:match "^ (%a-) (.-)\n(.-)%s?====%s?(.-)%s?==>>%s?(.-)%s?====%s?(.-)%s?$"
-    content = vim.split(content, "\n")
-    expected = vim.split(expected, "\n")
-    local start_row, start_col, end_row, end_col
-    for idx, line in ipairs(content) do
-      local col = line:find "<"
-      if col then
-        start_row = idx - 1
-        start_col = col - 1
-      end
-      line = line:gsub("<", "")
-      col = line:find ">"
-      if col then
-        end_row = idx - 1
-        end_col = col - 1
-      end
-      line = line:gsub(">", "")
-      content[idx] = line
-    end
-
+    local desc, pattern, template, rest = s:match "^ (.-)\n(.-)%s?==>>%s?(.-)\n%s?%*%*(.-)$"
     it(desc, function()
-      local ns = vim.api.nvim_create_namespace ""
-      local buf = vim.api.nvim_create_buf(false, true)
-      vim.bo[buf].filetype = ft
-      vim.api.nvim_buf_set_lines(buf, 0, -1, true, content)
-      local lang = ts.language.get_lang(vim.bo[buf].filetype)
-      assert(lang, "language not found")
-      local origin_node = u.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
-      assert(origin_node, 'treesitter parser not installed')
-      local parse_context = ParseContext.new(buf, lang, origin_node)
-      assert(parse_context)
-      local rule = Ssr.new(lang, pattern, template, parse_context)
-      assert(rule)
-      local matches = rule:search(buf)
-
-      for _, match in ipairs(matches) do
-        rule:replace(buf, match)
+      local expected_files = {}
+      for fname, before, after in (rest .. "**"):gmatch "%*%* (.-)\n(.-)\n%*%*%*%*\n(.-)\n%*%*" do
+        fname = vim.fn.tempname() .. "_" .. fname
+        local fd = assert(uv.fs_open(fname, "w", 438))
+        uv.fs_write(fd, before)
+        uv.fs_close(fd)
+        expected_files[fname] = after
       end
 
-      local actual = vim.api.nvim_buf_get_lines(buf, 0, -1, true)
-      vim.api.nvim_buf_delete(buf, {})
-      assert.are.same(expected, actual)
+      local empty_context = ParseContext.empty "TODO"
+      local searcher = assert(Searcher.new("TODO", pattern, empty_context))
+      local results = {}
+      local done = false
+      File.grep(searcher.rough_regex, function(file)
+        local matches = searcher:search(file)
+        assert(#matches > 0)
+        table.insert(results, { file = file, matches = matches })
+      end, function()
+        done = true
+      end)
+      vim.wait(10 * 1000, function()
+        return done
+      end)
+
+      local replacer = Replacer
+      for _, result in ipairs(results) do
+        result.file:load_buf()
+        for _, match in ipairs(result.matches) do
+          replacer:replace(result.file.source, template, match)
+        end
+      end
+      vim.cmd "wa"
+      for fname, expected in pairs(expected_files) do
+        local fd = assert(uv.fs_open(fname, "r", 438))
+        local stat = assert(uv.fs_fstat(fd))
+        local actual = uv.fs_read(fd, stat.size, 0)
+        uv.fs_close(fd)
+        assert.are.same(expected, actual)
+      end
     end)
   end
 end)

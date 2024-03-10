@@ -104,6 +104,9 @@ function MainWin:open_win(width, height)
     height = height,
   })
   vim.wo[self.win].wrap = false
+  if vim.fn.has "nvim-0.10" == 1 then
+    vim.wo[self.win].winfixbuf = true
+  end
   u.set_cursor(self.win, 2, 0)
   vim.fn.matchadd("Title", [[$\w\+]])
 end

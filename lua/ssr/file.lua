@@ -7,7 +7,7 @@ local uv = vim.uv or vim.loop
 ---@class File
 ---@field path string
 ---@field source string | buffer
----@field tree LanguageTree
+---@field tree vim.treesitter.LanguageTree
 -- Only if `source` is file content
 ---@field lines? string[]
 ---@field mtime? { nsec: integer, sec: integer }
