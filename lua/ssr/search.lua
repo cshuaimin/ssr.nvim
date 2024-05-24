@@ -4,6 +4,32 @@ local u = require "ssr.utils"
 
 local M = {}
 
+local EmbedCaptures = {
+  ---@param self {match: Match, buf: buffer}
+  ---@return string[]?
+  __index = function(self, index)
+    local capture = self.match.captures[index]
+    if capture == nil then
+      return nil
+    end
+
+    local start_row, start_col, end_row, end_col = self.match.captures[index]:get()
+    local lines = api.nvim_buf_get_text(self.buf, start_row, start_col, end_row, end_col, {})
+    return lines
+  end
+
+}
+
+---@param buf buffer
+---@param match Match
+function EmbedCaptures.new(buf, match)
+  return setmetatable({ buf = buf, match = match }, EmbedCaptures)
+end
+
+local errTemplateReturnsNonListTable =
+[[template expression returns result of unexpected type, returned: %s
+tip: to render empty text, use empty text or empty table.]]
+
 M.wildcard_prefix = "__ssr_var_"
 
 ---@class Match
@@ -200,6 +226,41 @@ function M.replace(buf, match, template)
     u.add_indent(lines, template_indent)
     return table.concat(lines, "\n")
   end)
+
+  replace = replace:gsub("()%$(%b())", function(pos, expr)
+    local eval_expr = "return " .. expr
+    _G._ = EmbedCaptures.new(buf, match)
+    local code, err = loadstring(eval_expr, "ssr_template_" .. pos)
+    if code == nil then
+      vim.notify("something's wrong with your template expression: " .. err, vim.log.levels.ERROR)
+      return ""
+    end
+    local lines = code()
+    _G._ = nil
+
+    if type(lines) == "string" then
+      return lines
+    elseif type(lines) == "table" then
+      if lines[1] == nil and next(lines) ~= nil then
+        -- table is not empty but does not look like a list
+        vim.notify(
+          string.format(errTemplateReturnsNonListTable, vim.inspect(lines)),
+          vim.log.levels.ERROR
+        )
+        return ""
+      end
+      return table.concat(lines, "\n")
+    else
+      local ok, result = pcall(tostring, lines)
+      if not ok then
+        vim.notify("template expression returns result of unsupported type, returned: " .. vim.inspect(lines),
+          vim.log.levels.ERROR)
+        return ""
+      end
+      return result
+    end
+  end)
+
   replace = vim.split(replace, "\n")
   local start_row, start_col, end_row, end_col = match.range:get()
   u.add_indent(replace, u.get_indent(buf, start_row))
