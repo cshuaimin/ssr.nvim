@@ -4,26 +4,26 @@ local u = require "ssr.utils"
 
 local M = {}
 
-local EmbedCaptures = {
-  ---@param self {match: Match, buf: buffer}
-  ---@return string[]?
-  __index = function(self, index)
-    local capture = self.match.captures[index]
-    if capture == nil then
-      return nil
-    end
-
-    local start_row, start_col, end_row, end_col = self.match.captures[index]:get()
-    local lines = api.nvim_buf_get_text(self.buf, start_row, start_col, end_row, end_col, {})
-    return lines
-  end
-
-}
-
 ---@param buf buffer
 ---@param match Match
-function EmbedCaptures.new(buf, match)
-  return setmetatable({ buf = buf, match = match }, EmbedCaptures)
+---@return table? old_metatable old metatable of _G
+local function embed_captures_in_global(buf, match)
+  local old_metatable = getmetatable(_G)
+  setmetatable(_G, {
+    __index = function(_, key)
+      local capture = match.captures[key]
+      if capture == nil then
+        return nil
+      end
+
+      local start_row, start_col, end_row, end_col = match.captures[key]:get()
+      local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
+      u.remove_indent(lines, u.get_indent(buf, start_row))
+      return table.concat(lines, "\n")
+    end
+  })
+
+  return old_metatable
 end
 
 local errTemplateReturnsNonListTable =
@@ -204,7 +204,7 @@ function M.search(buf, node, source, ns)
       return true
     end
     return (start_row1 > start_row2 or (start_row1 == start_row2 and start_col1 > start_col2))
-      and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
+        and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
   end)
 
   return matches
@@ -227,16 +227,17 @@ function M.replace(buf, match, template)
     return table.concat(lines, "\n")
   end)
 
+  -- Render inline lua expressions
   replace = replace:gsub("()%$(%b())", function(pos, expr)
     local eval_expr = "return " .. expr
-    _G._ = EmbedCaptures.new(buf, match)
+    local old_metatable = embed_captures_in_global(buf, match)
     local code, err = loadstring(eval_expr, "ssr_template_" .. pos)
     if code == nil then
       vim.notify("something's wrong with your template expression: " .. err, vim.log.levels.ERROR)
       return ""
     end
     local lines = code()
-    _G._ = nil
+    setmetatable(_G, old_metatable)
 
     if type(lines) == "string" then
       return lines
