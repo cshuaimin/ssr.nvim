@@ -4,6 +4,24 @@ local u = require "ssr.utils"
 
 local M = {}
 
+---Substituts $var using the provided function, and unescapes $$.
+---@param pattern string
+---@param replace fun(integer, string):string a function that takes the position, variable name and returns the substitution result
+local function substitute_variables(pattern, replace)
+  return pattern:gsub("()%$(%$?[_%a%d]*)", function(pos, match)
+    if match == "" then
+      -- single $, not a valid variable
+      return "$"
+    end
+    if string.match(match, "^%$") then
+      -- this is an escaped $
+      return match
+    end
+
+    return replace(pos, match)
+  end)
+end
+
 M.wildcard_prefix = "__ssr_var_"
 
 ---@class Match
@@ -178,7 +196,7 @@ function M.search(buf, node, source, ns)
       return true
     end
     return (start_row1 > start_row2 or (start_row1 == start_row2 and start_col1 > start_col2))
-      and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
+        and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
   end)
 
   return matches
@@ -190,8 +208,12 @@ end
 ---@param template string
 function M.replace(buf, match, template)
   -- Render templates with captured nodes.
-  local replace = template:gsub("()%$([_%a%d]+)", function(pos, var)
-    local start_row, start_col, end_row, end_col = match.captures[var]:get()
+  local replace = substitute_variables(template, function(pos, var)
+    local capture = match.captures[var]
+    if capture == nil then
+      return "$" .. var
+    end
+    local start_row, start_col, end_row, end_col = capture:get()
     local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
     u.remove_indent(lines, u.get_indent(buf, start_row))
     local var_lines = vim.split(template:sub(1, pos), "\n")
@@ -200,6 +222,7 @@ function M.replace(buf, match, template)
     u.add_indent(lines, template_indent)
     return table.concat(lines, "\n")
   end)
+
   replace = vim.split(replace, "\n")
   local start_row, start_col, end_row, end_col = match.range:get()
   u.add_indent(replace, u.get_indent(buf, start_row))

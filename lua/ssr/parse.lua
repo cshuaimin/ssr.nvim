@@ -3,6 +3,24 @@ local wildcard_prefix = require("ssr.search").wildcard_prefix
 
 local M = {}
 
+---Substituts $var using the provided function, and unescapes $$.
+---@param pattern string
+---@param replace fun(string):string a function that takes the variable name and returns the substitution result
+local function substitute_variables(pattern, replace)
+  return pattern:gsub("%$(%$?[_%a%d]*)", function(match)
+    if match == "" then
+      -- single $, not a valid variable
+      return "$"
+    end
+    if string.match(match, "^%$") then
+      -- this is an escaped $
+      return match
+    end
+
+    return replace(match)
+  end)
+end
+
 ---@class ParseContext
 ---@field lang string
 ---@field before string
@@ -68,7 +86,7 @@ end
 ---@return TSNode?, string
 function ParseContext:parse(pattern)
   -- Replace named wildcard $name to identifier __ssr_var_name to avoid syntax error.
-  pattern = pattern:gsub("%$([_%a%d]+)", wildcard_prefix .. "%1")
+  pattern = substitute_variables(pattern, function(var) return wildcard_prefix .. var end)
   local context_text = self.before .. pattern .. self.after
   local root = ts.get_string_parser(context_text, self.lang):parse()[1]:root()
   local lines = vim.split(pattern, "\n")
