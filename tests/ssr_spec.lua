@@ -222,6 +222,22 @@ x
 local a = vim.api
 ]]
 
+t [[ bash escape dollar sign in pattern
+<$FOO=$$BAR>
+====
+$$FOO=$$$$BAR ==>> foo
+====
+foo
+]]
+
+t [[ bash escape dollar sign in template
+<${FOO:-bar}>
+====
+$${FOO:-$b} ==>> $b$$b$$$b
+====
+bar$b$bar
+]]
+
 describe("", function()
   -- Plenary runs nvim with `--noplugin` argument.
   -- Make sure nvim-treesitter is loaded, which populates vim.treesitter's ft_to_lang table.
