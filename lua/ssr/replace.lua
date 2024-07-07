@@ -15,7 +15,9 @@ M.PinnedMatch = {}
 function M.pin_matches(matches)
   local res = {}
   for _, row in ipairs(matches) do
-    local buf = row.file:load_buf()
+    -- local buf = row.file:load_buf()
+    local buf = vim.fn.bufadd(row.file.path)
+    vim.fn.bufload(buf)
     for _, match in ipairs(row.matches) do
       -- local pinned = { buf = buf, range = match.range:to_extmark(buf), captures = {} }
       local pinned = { buf = buf, range = require("ssr.range").to_extmark(match.range, buf), captures = {} }

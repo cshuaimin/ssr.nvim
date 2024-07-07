@@ -64,19 +64,20 @@ function Ui:search()
   if pattern == self.last_pattern then return end
   self.last_pattern = pattern
 
-  local start = vim.loop.hrtime()
   self.matches = {}
-  local found = 0
-  local matched_files = 0
-
+  local start = vim.loop.hrtime()
   local searcher = Searcher.new(self.lang, pattern)
   if not searcher then return self:set_status "ERROR" end
   searcher:search(vim.fn.getcwd(-1), function(matches)
     local elapsed = (vim.loop.hrtime() - start) / 1E6
     self.matches = matches
-    vim.print(#matches)
+    local found = 0
+    for _, match in ipairs(matches) do
+      found = found + #match.matches
+    end
+
     self.main_win.result_list:set(self.matches)
-    self:set_status(string.format("%d found in %d files (%dms)", found, matched_files, elapsed))
+    self:set_status(string.format("%d found in %d files (%dms)", found, #matches, elapsed))
   end)
 end
 

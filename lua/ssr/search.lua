@@ -1,6 +1,6 @@
 -- local ts = vim.treesitter
 -- vim.func = require "vim.func"
-vim.F = require "vim.F"
+-- vim.F = require "vim.F"
 local uv = vim.uv or vim.loop
 local ts = require "vim.treesitter"
 local Range = require "ssr.range"
@@ -133,13 +133,13 @@ end
 function Searcher.new(lang, pattern)
   -- $ can cause syntax errors in most languages
   pattern = pattern:gsub("%$([_%a%d]+)", u.capture_prefix .. "%1")
-  -- local query = parse_pattern(lang, pattern)
-  -- if query == vim.NIL then return end
+  local query, captures = parse_pattern(lang, pattern)
+  if query == vim.NIL then return end
   return setmetatable({
     pattern = pattern,
     rough_regex = u.build_rough_regex(pattern),
-    queries = {},
-    captures = nil,
+    queries = { [lang] = query },
+    captures = captures,
   }, { __index = Searcher })
 end
 
@@ -192,7 +192,9 @@ end
 local cache = {}
 
 ---@class ssr.File
+---@field path string
 ---@field text string
+---@field lines string[]
 ---@field tree vim.treesitter.LanguageTree
 ---@field mtime { nsec: integer, sec: integer }
 
@@ -203,6 +205,10 @@ local cache = {}
 ---@param callback fun(ssr.Matches)
 function Searcher:search(dir, callback)
   -- Runs in a new Lua state.
+  ---@param self ssr.Searcher
+  ---@param path string
+  ---@param file? ssr.File
+  ---@return ssr.File?, ssr.Match[]?
   local function work_func(self, path, file)
     local uv = vim.uv or vim.loop
     local ts = vim.treesitter
@@ -213,6 +219,7 @@ function Searcher:search(dir, callback)
     local stat = uv.fs_fstat(fd) ---@cast stat -?
     if not file or file.mtime.sec ~= stat.mtime.sec or file.mtime.nsec ~= stat.mtime.nsec then
       local text = uv.fs_read(fd, stat.size, 0) ---@cast text -?
+      local lines = vim.split(text, "\n", { plain = true })
       local lang = "lua"
       local has_parser, tree = pcall(ts.get_string_parser, text, lang)
       if not has_parser then
@@ -221,13 +228,11 @@ function Searcher:search(dir, callback)
         return
       end
       tree:parse(true)
-      file = { text = text, tree = tree, mtime = stat.mtime }
+      file = { path = path, text = text, lines = lines, tree = tree, mtime = stat.mtime }
     end
     uv.fs_close(fd)
-
-    local s = require "ssr.search"
-    setmetatable(self, { __index = s })
-    return file, self:search_file(file)
+    local matches = self:search_file(file)
+    return file, matches
   end
 
   local works = 0
@@ -241,6 +246,7 @@ function Searcher:search(dir, callback)
       if not file then return end
       cache[path] = file
       table.insert(matches, { file = file, matches = m })
+      vim.print(m)
       done = done + 1
       if rg_done and done == works then vim.schedule_wrap(callback)(matches) end
     end)
