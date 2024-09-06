@@ -9,7 +9,7 @@ jobs:
 
     strategy:
       matrix:
-        nvim: [v0.9.1, nightly]
+        nvim: [v0.10.1, nightly]
 
     steps:
       - uses: actions/checkout@v3
@@ -35,7 +35,7 @@ jobs:
           git clone --depth 1 https://github.com/nvim-lua/plenary.nvim ~/.local/share/nvim/site/pack/vendor/start/plenary.nvim
           ln -s $(pwd) ~/.local/share/nvim/site/pack/vendor/start
           nvim --headless -c 'TSInstallSync python javascript lua rust go' -c 'q'
-          
+
       - name: Run tests
         run: |
           nvim --version

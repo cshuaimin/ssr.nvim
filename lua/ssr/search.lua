@@ -155,7 +155,7 @@ function M.search(buf, node, source, ns)
     return {}
   end
   local root = parser:parse(true)[1]:root()
-  for _, nodes in query:iter_matches(root, buf, 0, -1) do
+  for _, nodes in query:iter_matches(root, buf, 0, -1, { all = false }) do
     ---@type table<string, ExtmarkRange>
     local captures = {}
     for var, idx in pairs(wildcards) do
