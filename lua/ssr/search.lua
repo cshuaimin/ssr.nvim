@@ -4,6 +4,32 @@ local u = require "ssr.utils"
 
 local M = {}
 
+---@param buf buffer
+---@param match Match
+---@return table? old_metatable old metatable of _G
+local function embed_captures_in_global(buf, match)
+  local old_metatable = getmetatable(_G)
+  setmetatable(_G, {
+    __index = function(_, key)
+      local capture = match.captures[key]
+      if capture == nil then
+        return nil
+      end
+
+      local start_row, start_col, end_row, end_col = match.captures[key]:get()
+      local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
+      u.remove_indent(lines, u.get_indent(buf, start_row))
+      return table.concat(lines, "\n")
+    end
+  })
+
+  return old_metatable
+end
+
+local errTemplateReturnsNonListTable =
+[[template expression returns result of unexpected type, returned: %s
+tip: to render empty text, use empty text or empty table.]]
+
 M.wildcard_prefix = "__ssr_var_"
 
 ---@class Match
@@ -178,7 +204,7 @@ function M.search(buf, node, source, ns)
       return true
     end
     return (start_row1 > start_row2 or (start_row1 == start_row2 and start_col1 > start_col2))
-      and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
+        and (end_row1 < end_row2 or (end_row1 == end_row2 and end_col1 <= end_col2))
   end)
 
   return matches
@@ -200,6 +226,42 @@ function M.replace(buf, match, template)
     u.add_indent(lines, template_indent)
     return table.concat(lines, "\n")
   end)
+
+  -- Render inline lua expressions
+  replace = replace:gsub("()%$(%b())", function(pos, expr)
+    local eval_expr = "return " .. expr
+    local old_metatable = embed_captures_in_global(buf, match)
+    local code, err = loadstring(eval_expr, "ssr_template_" .. pos)
+    if code == nil then
+      vim.notify("something's wrong with your template expression: " .. err, vim.log.levels.ERROR)
+      return ""
+    end
+    local lines = code()
+    setmetatable(_G, old_metatable)
+
+    if type(lines) == "string" then
+      return lines
+    elseif type(lines) == "table" then
+      if lines[1] == nil and next(lines) ~= nil then
+        -- table is not empty but does not look like a list
+        vim.notify(
+          string.format(errTemplateReturnsNonListTable, vim.inspect(lines)),
+          vim.log.levels.ERROR
+        )
+        return ""
+      end
+      return table.concat(lines, "\n")
+    else
+      local ok, result = pcall(tostring, lines)
+      if not ok then
+        vim.notify("template expression returns result of unsupported type, returned: " .. vim.inspect(lines),
+          vim.log.levels.ERROR)
+        return ""
+      end
+      return result
+    end
+  end)
+
   replace = vim.split(replace, "\n")
   local start_row, start_col, end_row, end_col = match.range:get()
   u.add_indent(replace, u.get_indent(buf, start_row))
