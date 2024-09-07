@@ -69,7 +69,7 @@ ts.query.add_predicate("ssr-tree-match?", function(match, _pattern, buf, pred)
     return true
   end
   return tree_match(match[pred[2]], match[pred[3]])
-end, true)
+end, { force = true, all = false })
 
 -- Build a TS sexpr represting the node.
 ---@param node TSNode
