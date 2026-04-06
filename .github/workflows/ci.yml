@@ -9,10 +9,10 @@ jobs:
 
     strategy:
       matrix:
-        nvim: [v0.10.1, nightly]
+        nvim: [v0.12.0, nightly]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
 
       - name: Set Envs
         run: |
@@ -26,15 +26,18 @@ jobs:
           path: ~/.local/share/nvim
           key: ${{ runner.os }}-nvim-${{ matrix.nvim }}
 
+      - uses: tree-sitter/setup-action/cli@v2
+        if: steps.cache.outputs.cache-hit != 'true'
+
       - name: Install Dependencies
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.local/share/nvim/
-          curl -sL "https://github.com/neovim/neovim/releases/download/${{ matrix.nvim }}/nvim-linux64.tar.gz" | tar xzf - --strip-components=1 -C ~/.local/share/nvim/
+          curl -sL "https://github.com/neovim/neovim/releases/download/${{ matrix.nvim }}/nvim-linux-x86_64.tar.gz" | tar xzf - --strip-components=1 -C ~/.local/share/nvim/
           git clone --depth 1 https://github.com/nvim-treesitter/nvim-treesitter.git ~/.local/share/nvim/site/pack/vendor/start/nvim-treesitter
           git clone --depth 1 https://github.com/nvim-lua/plenary.nvim ~/.local/share/nvim/site/pack/vendor/start/plenary.nvim
           ln -s $(pwd) ~/.local/share/nvim/site/pack/vendor/start
-          nvim --headless -c 'TSInstallSync python javascript lua rust go' -c 'q'
+          nvim --headless +"lua require('nvim-treesitter').install({ 'python', 'javascript', 'rust', 'go' }):wait()" +q
 
       - name: Run tests
         run: |

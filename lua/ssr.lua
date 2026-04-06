@@ -35,19 +35,19 @@ function M.setup(cfg)
   end
 end
 
----@type table<window, Ui>
+---@type table<integer, Ui>
 local win_uis = {}
 
 ---@class Ui
----@field ns number
----@field cur_search_ns number
----@field augroup number
----@field ui_buf buffer
----@field extmarks {status: number, search: number, replace: number}
----@field origin_win window
+---@field ns integer
+---@field cur_search_ns integer
+---@field augroup integer
+---@field ui_buf integer
+---@field extmarks {status: integer, search: integer, replace: integer}
+---@field origin_win integer
 ---@field lang string
 ---@field parse_context ParseContext
----@field buf_matches table<buffer, Match[]>
+---@field buf_matches table<integer, Match[]>
 local Ui = {}
 
 ---@return Ui?
@@ -58,7 +58,7 @@ function Ui.new()
   local origin_buf = api.nvim_win_get_buf(self.origin_win)
   local lang = ts.language.get_lang(vim.bo[origin_buf].filetype)
   if not lang then
-    return u.notify("Treesitter language not found")
+    return u.notify "Treesitter language not found"
   end
   self.lang = lang
 
@@ -84,9 +84,7 @@ function Ui.new()
   self.ui_buf = api.nvim_create_buf(false, true)
   vim.bo[self.ui_buf].filetype = "ssr"
 
-  local placeholder = ts.get_node_text(origin_node, origin_buf)
-  placeholder = "\n\n" .. placeholder .. "\n\n"
-  placeholder = vim.split(placeholder, "\n")
+  local placeholder = vim.split("\n\n" .. ts.get_node_text(origin_node, origin_buf) .. "\n\n", "\n")
   u.remove_indent(placeholder, u.get_indent(origin_buf, origin_node:start()))
   api.nvim_buf_set_lines(self.ui_buf, 0, -1, true, placeholder)
   -- Enable syntax highlights
@@ -316,7 +314,9 @@ function Ui:replace_confirm()
   local function open_confirm_win(match_idx)
     self:goto_match(match_idx)
     local _, _, end_row, end_col = matches[match_idx].range:get()
-    local cfg = {
+    return api.nvim_open_win(confirm_buf, true, {
+      title = "Replace?",
+      title_pos = "center",
       relative = "win",
       win = self.origin_win,
       bufpos = { end_row, end_col },
@@ -324,12 +324,7 @@ function Ui:replace_confirm()
       border = config.border,
       width = 14,
       height = 6,
-    }
-    if vim.fn.has "nvim-0.9" == 1 then
-      cfg.title = "Replace?"
-      cfg.title_pos = "center"
-    end
-    return api.nvim_open_win(confirm_buf, true, cfg)
+    })
   end
 
   local match_idx = 1
@@ -435,7 +430,7 @@ function Ui:set_status(status)
   })
 end
 
----@param win window?
+---@param win integer?
 ---@return Ui?
 function Ui.from_win(win)
   if win == nil or win == 0 then

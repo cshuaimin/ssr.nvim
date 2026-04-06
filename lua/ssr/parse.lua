@@ -14,7 +14,7 @@ ParseContext.__index = ParseContext
 M.ParseContext = ParseContext
 
 -- Create a context in which `origin_node` (and user input) will be parsed correctly.
----@param buf buffer
+---@param buf integer
 ---@param origin_node TSNode
 ---@return ParseContext?
 function ParseContext.new(buf, origin_node)

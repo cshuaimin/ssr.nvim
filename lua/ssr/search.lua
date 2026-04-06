@@ -11,14 +11,14 @@ M.wildcard_prefix = "__ssr_var_"
 ---@field captures ExtmarkRange[]
 
 ---@class ExtmarkRange
----@field ns number
----@field buf buffer
----@field extmark number
+---@field ns integer
+---@field buf integer
+---@field extmark integer
 local ExtmarkRange = {}
 M.ExtmarkRange = ExtmarkRange
 
----@param ns number
----@param buf buffer
+---@param ns integer
+---@param buf integer
 ---@param node TSNode
 ---@return ExtmarkRange
 function ExtmarkRange.new(ns, buf, node)
@@ -35,7 +35,7 @@ function ExtmarkRange.new(ns, buf, node)
   }, { __index = ExtmarkRange })
 end
 
----@return number, number, number, number
+---@return integer, integer, integer, integer
 function ExtmarkRange:get()
   local extmark = api.nvim_buf_get_extmark_by_id(self.buf, self.ns, self.extmark, { details = true })
   return extmark[1], extmark[2], extmark[3].end_row, extmark[3].end_col
@@ -68,15 +68,15 @@ ts.query.add_predicate("ssr-tree-match?", function(match, _pattern, buf, pred)
     end
     return true
   end
-  return tree_match(match[pred[2]], match[pred[3]])
-end, { force = true, all = false })
+  return tree_match(match[pred[2]][1], match[pred[3]][1])
+end, { force = true })
 
 -- Build a TS sexpr represting the node.
 ---@param node TSNode
 ---@param source string
----@return string, table<string, number>
+---@return string, table<string, integer>
 local function build_sexpr(node, source)
-  ---@type table<string, number>
+  ---@type table<string, integer>
   local wildcards = {}
   local next_idx = 1
 
@@ -137,7 +137,7 @@ local function build_sexpr(node, source)
   return sexpr, wildcards
 end
 
----@param buf buffer
+---@param buf integer
 ---@param node TSNode
 ---@param source string
 ---@return Match[]
@@ -150,18 +150,16 @@ function M.search(buf, node, source, ns)
   end
   local query = parse_query(lang, sexpr)
   local matches = {}
-  local has_parser, parser = pcall(ts.get_parser, buf, lang)
-  if not has_parser then
-    return {}
-  end
+  local parser = assert(u.get_parser(buf, lang))
   local root = parser:parse(true)[1]:root()
-  for _, nodes in query:iter_matches(root, buf, 0, -1, { all = false }) do
+  for _, match in query:iter_matches(root, buf, 0, -1) do
     ---@type table<string, ExtmarkRange>
     local captures = {}
     for var, idx in pairs(wildcards) do
-      captures[var] = ExtmarkRange.new(ns, buf, nodes[idx])
+      captures[var] = ExtmarkRange.new(ns, buf, match[idx][1])
     end
-    local match = { range = ExtmarkRange.new(ns, buf, nodes[#nodes]), captures = captures }
+    -- The last match is @all in sexpr.
+    local match = { range = ExtmarkRange.new(ns, buf, match[#match][1]), captures = captures }
     table.insert(matches, match)
   end
 
@@ -185,7 +183,7 @@ function M.search(buf, node, source, ns)
 end
 
 --- Render template and replace one match.
----@param buf buffer
+---@param buf integer
 ---@param match Match
 ---@param template string
 function M.replace(buf, match, template)

@@ -254,13 +254,12 @@ describe("", function()
       local buf = vim.api.nvim_create_buf(false, true)
       vim.bo[buf].filetype = ft
       vim.api.nvim_buf_set_lines(buf, 0, -1, true, content)
-      local lang = ts.language.get_lang(vim.bo[buf].filetype)
-      assert(lang, "language not found")
-      local origin_node = u.node_for_range(buf, lang, start_row, start_col, end_row, end_col)
+      local lang = assert(ts.language.get_lang(ft))
+      local origin_node = assert(u.node_for_range(buf, lang, start_row, start_col, end_row, end_col))
 
       local parse_context = ParseContext.new(buf, origin_node)
       assert(parse_context)
-      local node, source = parse_context:parse(pattern)
+      local node, source = assert(parse_context:parse(pattern))
       local matches = search(buf, node, source, ns)
 
       for _, match in ipairs(matches) do
