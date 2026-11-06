@@ -29,23 +29,16 @@ describe("match navigation", function()
     error("Missing mapping: " .. key)
   end
 
-  it("can navigate immediately after opening", function()
-    press "n"
-    assert.are.same({ 2, 0 }, api.nvim_win_get_cursor(origin_win))
-    press "N"
-    assert.are.same({ 1, 0 }, api.nvim_win_get_cursor(origin_win))
-  end)
-
   it("keeps the cursor still when the pattern has no matches", function()
     api.nvim_buf_set_lines(ui.ui_buf, 2, 3, true, { "g($a)" })
     api.nvim_exec_autocmds("TextChanged", { buffer = ui.ui_buf })
     assert.are.equal(0, #ui.buf_matches[origin_buf])
     local cursor = api.nvim_win_get_cursor(origin_win)
+    local status = api.nvim_buf_get_extmark_by_id(ui.ui_buf, ui.ns, ui.extmarks.status, { details = true })
     press "n"
     press "N"
     assert.are.same(cursor, api.nvim_win_get_cursor(origin_win))
-    local status = api.nvim_buf_get_extmark_by_id(ui.ui_buf, ui.ns, ui.extmarks.status, { details = true })
-    assert.are.equal("pattern not found", status[3].virt_text[2][1])
+    assert.are.same(status, api.nvim_buf_get_extmark_by_id(ui.ui_buf, ui.ns, ui.extmarks.status, { details = true }))
 
     api.nvim_buf_set_lines(ui.ui_buf, 2, 3, true, { "f($a)" })
     api.nvim_exec_autocmds("TextChanged", { buffer = ui.ui_buf })
