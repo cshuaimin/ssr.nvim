@@ -253,6 +253,9 @@ function Ui:goto_match(match_idx)
   local buf = api.nvim_win_get_buf(self.origin_win)
   api.nvim_buf_clear_namespace(buf, self.cur_search_ns, 0, -1)
   local matches = self.buf_matches[buf]
+  if #matches == 0 then
+    return
+  end
   local start_row, start_col, end_row, end_col = matches[match_idx].range:get()
   u.set_cursor(self.origin_win, start_row, start_col)
   highlight.range(
